@@ -503,6 +503,9 @@ In the first iteration, we will focus on the core functionality of the app: crea
 - ✅ Query tools (get_overdue, get_statistics)
 - ✅ Resource: stats://overview
 - ✅ Response formatting (Markdown)
+- ✅ VS Code MCP configuration example (embedded in quickstart)
+- ✅ VS Code one-click installation button
+- ✅ User quickstart guide (MCP-QUICKSTART.md)
 - ⬜ MCP tool tests with Inspector (deferred - manual testing confirms functionality)
 - ⬜ Resource templates (task:///{task_id}, etc.) - deferred to future iteration
 - ⬜ Prompts (daily_planning, etc.) - deferred to future iteration

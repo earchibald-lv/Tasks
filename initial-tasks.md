@@ -8,7 +8,7 @@
 ```
 Hey Eugene, I see ASG components using the new /22 subnets in lv-na4, not yet ECS, you mentioned that depends on redeployments, we executed this more than a week ago:https://jira.livevox.com/browse/NETOPS-11162https://jira.livevox.com/browse/NETOPS-11165Should we start seeing ECS to use the new subnets?
 ```
-- build and refine a task management CLI app in Python
+- build and refine a task management CLI app in Python (taskmanager) with a SQLite backend for local testing and development
 - UK2: continue to integrate both jira tickets and my notes with ongoing updates and fixes
 - EU1: Fix incorrect ECS ALB subnet assignments. From Shannon, SRE-5045 - EU1: Incorrect SG for internal ALBs. Status: On Hold | Priority: Medium. Internal ALBs have default VPC SG instead of internal ALB SG. Updated: Jan 16, 2026
 - Work integrating Aaron's OpenAPM sidecar changes to ECS logging into ECS/component_fargate_terraform. Right now Aaron is working on a manual update to a task definition until he gets it working, then he will refer the specification to me for implementation.
@@ -50,3 +50,4 @@ Hey Eugene, I see ASG components using the new /22 subnets in lv-na4, not yet EC
 - ECS/component_fargate_terraform: 2.0, supporting major.minor versioning, is currently oly being used for TST2 26.1 deployments. Next step is to make sure it is global and includes UK2 and any STG4 region changes we make to it.
 - cloudtrail + S3 -- take my demo and productize it into TF -> IaaSSRE-5220 Research and implement CRUD tracking for S3 terraform state bucketsAndres' S3 code. Where can I go with it? What are its limitations? How do we handle transitioning smoothly with A/B regions including both resources AND state?Cleaning out remainining resources: TST2-A lv-techops NA3, NA5LV MCPs! SRE-5224 Update Cloudfront distributions to support TLS 1.2UK2 environment build! Kickoff meeting on Wednesday morningTERRAFORM STATE BUCKET and TRACKING (SRE-5220)BYOK (bring your own key)AMI: it's my time to try where instead of sharing AMIs we actually COPY them from env to env to remove building-block problem
 - terraform everywhere: migrate to using use_locking=true in backend configs instead of dynamic locking via separate dynamodb table management. This is now supported in recent terraform versions and simplifies our backend configs significantly.
+- 
