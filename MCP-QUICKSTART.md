@@ -18,27 +18,27 @@ The Tasks MCP (Model Context Protocol) server allows AI assistants like Claude i
 - VS Code with Claude or another MCP-compatible AI assistant
 - Tasks project cloned/downloaded to your machine
 
-## Installation Methods
+## Installation
 
 ### Method 1: One-Click Installation (Recommended)
 
 Click the button below to install the Tasks MCP server in VS Code:
 
-[![Install Tasks MCP Server](https://img.shields.io/badge/Install_in_VS_Code-Tasks_MCP-blue?style=for-the-badge&logo=visualstudiocode)](vscode:mcp/install?%7B%22mcpServers%22%3A%7B%22tasks_mcp%22%3A%7B%22command%22%3A%22tasks-mcp%22%7D%7D%7D)
+[![Install Tasks MCP Server](https://img.shields.io/badge/Install_in_VS_Code-Tasks_MCP-blue?style=for-the-badge&logo=visualstudiocode)](vscode:mcp/install?%7B%22name%22%3A%22tasks-mcp%22%2C%22command%22%3A%22tasks-mcp%22%7D)
 
 **Note:** You must first install the package via `pipx install /path/to/Tasks` before using this one-click configuration.
 
 **After clicking:**
-1. VS Code will prompt you to confirm the installation
+1. VS Code will prompt you to confirm the installation, showing the exact command that will be run
 2. Accept the prompt to add the MCP server configuration
 3. Reload VS Code or restart the AI assistant
 4. The Tasks MCP server will be available to your AI assistant
 
-### Method 2: Manual VS Code Configuration
+### Method 2: Manual Configuration
 
 If the one-click installation doesn't work, you can manually configure the MCP server:
 
-#### Step 0: Install the package via pipx
+### Step 1: Install the package via pipx
 
 ```bash
 # Install from local project directory
@@ -50,14 +50,14 @@ pipx install --editable /absolute/path/to/your/Tasks/project
 
 This installs the `tasks-mcp` command globally, making it available to VS Code.
 
-#### Step 1: Find your VS Code MCP settings
+### Step 2: Find your VS Code MCP settings
 
 Open VS Code Command Palette (`Cmd+Shift+P` on Mac, `Ctrl+Shift+P` on Windows/Linux) and search for "MCP: Edit Configuration" or manually open:
 - **macOS**: `~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
 - **Windows**: `%APPDATA%\Code\User\globalStorage\saoudrizwan.claude-dev\settings\cline_mcp_settings.json`
 - **Linux**: `~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
 
-#### Step 2: Add the Tasks MCP server configuration
+### Step 3: Add the Tasks MCP server configuration
 
 Add the following configuration to your MCP settings file:
 
@@ -73,7 +73,7 @@ Add the following configuration to your MCP settings file:
 
 **Note:** This assumes you've installed the package via `pipx install /path/to/Tasks` which makes the `tasks-mcp` command globally available.
 
-#### Step 3: Reload VS Code
+### Step 4: Reload VS Code
 
 After saving the configuration:
 1. Reload VS Code (`Cmd+R` on Mac, `Ctrl+R` on Windows/Linux)

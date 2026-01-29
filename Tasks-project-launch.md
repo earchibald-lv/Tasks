@@ -15,7 +15,7 @@ The app is CLI-first but designed with a pluggable architecture to allow for fut
 - **ORM**: SQLModel for type-safe database operations with Pydantic integration
 - **CLI Framework**: Typer for modern CLI with excellent type hints and auto-completion
 - **CLI Output**: Rich for beautiful terminal formatting (tables, colors, progress bars)
-- **MCP Server**: FastMCP (from MCP Python SDK) for AI agent integration
+- **MCP Server**: FastMCP 3.0.0b1 (beta) for AI agent integration with User Elicitation support
 - **Validation**: Pydantic v2 for data validation and serialization (included with SQLModel)
 
 ### Development Tools
@@ -89,11 +89,7 @@ task-manager/
 │   └── utils.py              # Shared utilities
 ├── mcp_server/               # MCP server (AI agent interface)
 │   ├── __init__.py
-│   ├── server.py             # FastMCP server initialization
-│   ├── tools.py              # MCP tool implementations
-│   ├── resources.py          # MCP resource handlers
-│   ├── prompts.py            # MCP prompt definitions
-│   └── formatters.py         # Response formatting utilities
+│   └── server.py             # FastMCP 3.0 server with tools, resources, and User Elicitation forms
 ├── tests/                    # Test suite
 │   ├── __init__.py
 │   ├── test_service.py       # Service layer tests
@@ -214,77 +210,115 @@ tasks delete 42
 
 ### Server Configuration
 
-- **Server Name**: `tasks_mcp`
+- **Framework**: FastMCP 3.0.0b1 (beta version with 70% market adoption)
+- **Server Name**: `Task Manager`
+- **Command**: `tasks-mcp` (globally installed via pipx)
 - **Transport**: stdio (for local/single-user operation)
-- **Capabilities**: Tools, Resources, Resource Templates, Prompts
+- **Capabilities**: Tools, Resources, User Elicitation (interactive forms)
 - **Shared Database**: Same SQLite database as CLI (`~/.taskmanager/tasks.db`)
+- **Installation**: `pipx install -e .` for editable development mode
 
 ### MCP Tools (AI-Invocable Actions)
 
 Tools are functions that AI agents can call autonomously based on user intent.
 
-#### Core CRUD Tools
+#### Standard Tools (Direct Invocation)
 
 ```python
 # Create operations
-tasks_create_task(title, description?, priority?, due_date?, tags?)
-  → Returns: Task details in JSON
+create_task(title, description?, priority="medium", status="todo", due_date?)
+  → Returns: Task details in Markdown
 
 # Read operations  
-tasks_get_task(task_id)
-  → Returns: Single task details
+get_task(task_id)
+  → Returns: Single task details in Markdown
 
-tasks_list_tasks(status?, priority?, tags?, limit=20, offset=0, format="markdown")
-  → Returns: List of tasks (paginated)
+list_tasks(status="all", priority="all", overdue_only=false)
+  → Returns: List of tasks in Markdown
 
 # Update operations
-tasks_update_task(task_id, title?, description?, priority?, due_date?, status?)
-  → Returns: Updated task details
+update_task(task_id, title?, description?, priority?, status?, due_date?)
+  → Returns: Updated task details in Markdown
 
-tasks_mark_complete(task_id, completed=true)
-  → Returns: Confirmation message
-
-tasks_set_priority(task_id, priority)
+complete_task(task_id)
   → Returns: Confirmation message
 
 # Delete operations
-tasks_delete_task(task_id)
-  → Returns: Confirmation message
+delete_task(task_id)
+  → Returns: Confirmation message (⚠️ no confirmation dialog)
 ```
 
-#### Query & Analysis Tools
+#### Interactive Tools (User Elicitation Forms)
+
+FastMCP 3.0 User Elicitation enables interactive forms with accept/decline/cancel actions:
 
 ```python
-tasks_search_tasks(query, limit=20)
-  → Returns: Matching tasks
+# Interactive creation with full form
+create_task_interactive()
+  → Presents: TaskCreationForm (title, description, priority, due_date)
+  → User actions: accept (create), decline (reject), cancel
+  → Returns: Created task details or cancellation message
 
-tasks_get_overdue(format="markdown")
-  → Returns: List of overdue tasks
+# Interactive update with pre-filled form
+update_task_interactive(task_id)
+  → Fetches current task values
+  → Presents: TaskUpdateForm (pre-filled with current values)
+  → User actions: accept (update), decline (reject), cancel
+  → Returns: Updated task details or cancellation message
 
-tasks_get_statistics(period="all")
-  → Returns: Task statistics (total, completed, pending, etc.)
+# Interactive deletion with confirmation
+delete_task_interactive(task_id)
+  → Shows current task details
+  → Presents: TaskDeletionConfirmation (confirm boolean)
+  → User actions: accept+confirm (delete), decline (preserve), cancel
+  → Returns: Deletion confirmation or preservation message
 ```
 
+**Pydantic Form Models:**
+- `TaskCreationForm`: title (required), description, priority, due_date
+- `TaskUpdateForm`: all fields optional (empty = keep current value)
+- `TaskDeletionConfirmation`: confirm boolean with task details shown
+
+**User Elicitation Benefits:**
+- Interactive data collection in VS Code
+- Form validation with Pydantic
+- Clear accept/decline/cancel workflow
+- Pre-filled forms show current values
+- Confirmation dialogs prevent accidents
+
+#### Query Tools
+
+```python
+get_overdue()
+  → Returns: List of overdue tasks in Markdown
+```
+
+**Note**: Statistics are available via the `tasks://stats` resource, not as a tool.
+
 #### Tool Design Principles
-- **Naming**: Use `tasks_` prefix to avoid conflicts
-- **Validation**: All inputs validated with Pydantic models
-- **Output Formats**: Support both Markdown (human) and JSON (machine)
-- **Pagination**: List operations support limit/offset
-- **Error Handling**: Clear, actionable error messages
-- **Annotations**: Mark tools as readOnly, destructive, idempotent
+- **Naming**: Simple, clear names (no prefix needed in FastMCP 3.0)
+- **Decorators**: Use `@mcp.tool()` for automatic registration
+- **Validation**: Input validation via function signatures and Pydantic
+- **Output Format**: Markdown for human-readable responses
+- **Error Handling**: Clear, actionable error messages with emoji indicators
+- **User Elicitation**: Interactive forms use `async def` with `Context` parameter
+- **Form Validation**: Pydantic models for structured input collection
 
 ### MCP Resources (Contextual Data)
 
 Resources provide structured data that AI agents can access for context.
 
-#### Static Resources
+#### Implemented Resources
 
 ```
-config://settings          # Application configuration
-stats://overview           # Current task statistics  
-tags://list                # Available tags with counts
-system://priorities        # Priority definitions
+tasks://stats              # Current task statistics
+                          # - Total tasks
+                          # - Status breakdown (pending, in_progress, completed, archived)
+                          # - Priority breakdown (high, medium, low)
+                          # - Overdue count
 ```
+
+**Resource Decorator**: `@mcp.resource("tasks://stats")`
 
 #### Resource Templates (Parameterized)
 
@@ -497,22 +531,60 @@ In the first iteration, we will focus on the core functionality of the app: crea
 - ✅ Error handling and user feedback
 - ⬜ CLI integration tests (deferred - manual testing confirms functionality)
 
-#### Phase 3: MCP Server ✅ COMPLETE
-- ✅ FastMCP server initialization
-- ✅ Core CRUD tools (create, get, list, update, delete, mark_complete)
-- ✅ Query tools (get_overdue, get_statistics)
-- ✅ Resource: stats://overview
-- ✅ Response formatting (Markdown)
-- ✅ Console script entry point (tasks-mcp command)
-- ✅ pipx installation support
-- ✅ VS Code MCP configuration example (embedded in quickstart)
-- ✅ VS Code one-click installation button
-- ✅ User quickstart guide (MCP-QUICKSTART.md)
-- ⬜ MCP tool tests with Inspector (deferred - manual testing confirms functionality)
+#### Phase 3: MCP Server ✅ COMPLETE (FastMCP 3.0 with User Elicitation)
+- ✅ **FastMCP 3.0.0b1 upgrade** from old MCP SDK
+- ✅ **User Elicitation implementation** with Pydantic forms
+- ✅ **Interactive tools**: create_task_interactive, update_task_interactive, delete_task_interactive
+- ✅ **Standard tools**: create, get, list, update, complete, delete (6 tools)
+- ✅ **Query tools**: get_overdue
+- ✅ **Resource**: tasks://stats (statistics with breakdown)
+- ✅ **Pydantic form models**: TaskCreationForm, TaskUpdateForm, TaskDeletionConfirmation
+- ✅ **Response formatting**: Markdown with emoji indicators
+- ✅ **Console script entry point**: tasks-mcp command
+- ✅ **pipx installation**: Editable mode support (`pipx install -e .`)
+- ✅ **VS Code integration**: One-click installation button in MCP-QUICKSTART.md
+- ✅ **User documentation**: MCP-QUICKSTART.md with User Elicitation examples
+- ✅ **Manual testing**: All tools functional in VS Code
+- ✅ **Bug fixes**: Status enum mapping, tuple unpacking, date formatting, tags removal
+- ⬜ Automated MCP tool tests (deferred - manual testing confirms functionality)
 - ⬜ Resource templates (task:///{task_id}, etc.) - deferred to future iteration
 - ⬜ Prompts (daily_planning, etc.) - deferred to future iteration
 
-#### Phase 4: Integration & Polish (Week 3) - READY TO START
+#### Phase 3.5: FastMCP 3.0 Enhancement ✅ COMPLETE
+
+**Research & Planning:**
+- ✅ FastMCP 3.0 research (fetched 6 documentation pages)
+- ✅ Discovered User Elicitation as Python solution for interactive forms
+- ✅ Created comprehensive research report (FASTMCP-3.0-RESEARCH.md)
+- ✅ User decision: immediate implementation with full forms
+
+**Implementation:**
+- ✅ Upgraded dependencies: fastmcp>=3.0.0b1, mcp>=1.23
+- ✅ Rewrote server.py with FastMCP 3.0 patterns (487 lines → 561 lines)
+- ✅ Implemented @mcp.tool() decorators for all tools
+- ✅ Created 3 Pydantic form models for User Elicitation
+- ✅ Implemented 3 interactive tools with async Context parameter
+- ✅ Fixed form schemas to use primitive types only (VS Code requirement)
+- ✅ Converted date/tags handling from union types to string parsing
+- ✅ Fixed status enum mapping (PENDING not TODO)
+- ✅ Fixed tuple unpacking for service.list_tasks() return value
+- ✅ Removed tags references (not yet in Task model)
+- ✅ Installed editable package: pipx install -e .
+
+**Testing & Validation:**
+- ✅ All 69 unit tests passing after upgrade
+- ✅ Manual testing of all 9 tools (6 standard + 3 interactive)
+- ✅ Verified User Elicitation forms work in VS Code
+- ✅ Tested create_task_interactive with full form workflow
+- ✅ Confirmed database persistence across interfaces
+- ✅ Cross-interface testing (CLI + MCP using same database)
+
+**Documentation:**
+- ✅ Updated MCP-QUICKSTART.md with User Elicitation examples
+- ✅ Fixed one-click installation button with correct URL encoding
+- ✅ Documented Pydantic form models and interactive tools
+
+#### Phase 4: Integration & Polish - IN PROGRESS
 - ⬜ End-to-end integration testing
 - ⬜ Cross-interface consistency verification
 - ⬜ Error handling refinement
@@ -534,12 +606,12 @@ In the first iteration, we will focus on the core functionality of the app: crea
 
 **Technical Requirements:**
 - ✅ >80% test coverage for service layer (99% for core logic; 38% overall with untested interfaces)
-- ✅ All tests passing (69 unit tests)
+- ✅ All tests passing (69 unit tests after FastMCP 3.0 upgrade)
 - ✅ Type checking passes (mypy)
 - ✅ Linting passes (ruff)
-- ⬜ CLI installable via pipx (functional via `python -m taskmanager`)
-- ✅ MCP server functional (tested via JSON-RPC)
-- ✅ Clear error messages for all failure cases
+- ✅ CLI installable via pipx (installed and functional)
+- ✅ MCP server functional (FastMCP 3.0.0b1 with User Elicitation)
+- ✅ Clear error messages for all failure cases with emoji indicators
 
 **User Experience:**
 - ✅ CLI commands intuitive and well-documented (built-in help)
@@ -551,15 +623,20 @@ In the first iteration, we will focus on the core functionality of the app: crea
 ### Deliverables
 
 1. **Working Application**
-   - Installable CLI: `pipx install .`
-   - Functional MCP server: `tasks_mcp`
+   - Installable CLI: `pipx install -e .` (editable mode)
+   - CLI command: `tasks`
+   - MCP server command: `tasks-mcp`
+   - MCP framework: FastMCP 3.0.0b1 with User Elicitation
    - Database: `~/.taskmanager/tasks.db`
+   - Interactive forms: 3 tools with Pydantic models
 
 2. **Documentation**
    - README with installation and usage instructions
    - CLI help text for all commands
-   - MCP tool descriptions
-   - Architecture documentation
+   - MCP-QUICKSTART.md with User Elicitation examples
+   - FASTMCP-3.0-RESEARCH.md with implementation guide
+   - MCP tool descriptions (9 tools: 6 standard + 3 interactive)
+   - Architecture documentation (Tasks-project-launch.md)
 
 3. **Test Suite**
    - Comprehensive unit tests

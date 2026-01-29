@@ -1,27 +1,29 @@
-"""FastMCP server for task management.
+"""FastMCP 3.0 server for task management.
 
 This module provides an MCP server that exposes task management functionality
-to AI agents through tools, resources, and prompts.
+to AI agents through tools with User Elicitation for interactive forms.
 """
 
 from datetime import date, datetime
+from typing import Literal
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import Resource, TextContent, Tool
+from fastmcp import FastMCP, Context
+from pydantic import BaseModel, Field
 
 from taskmanager.database import get_session, init_db
 from taskmanager.models import Priority, Task, TaskStatus
 from taskmanager.repository_impl import SQLTaskRepository
 from taskmanager.service import TaskService
 
-# Initialize the MCP server
-app = Server("tasks_mcp")
+# Initialize FastMCP server
+mcp = FastMCP("Task Manager", version="0.1.0")
+
+# Initialize database on startup
+init_db()
 
 
 def get_service() -> TaskService:
     """Create and return a TaskService instance."""
-    init_db()
     session = get_session()
     repository = SQLTaskRepository(session)
     return TaskService(repository)
@@ -41,445 +43,514 @@ def format_task_markdown(task: Task) -> str:
 
     if task.due_date:
         is_overdue = task.due_date < date.today() and task.status not in [
-            TaskStatus.COMPLETED, TaskStatus.ARCHIVED
+            TaskStatus.COMPLETED,
+            TaskStatus.ARCHIVED,
         ]
         due_str = f"{task.due_date} ⚠️ OVERDUE" if is_overdue else str(task.due_date)
         lines.append(f"**Due:** {due_str}")
 
-    lines.extend([
-        "",
-        f"**Created:** {task.created_at.strftime('%Y-%m-%d %H:%M')}",
-    ])
-
+    lines.append("")
+    if task.created_at:
+        lines.append(f"**Created:** {task.created_at.strftime('%Y-%m-%d %H:%M')}")
     if task.updated_at:
         lines.append(f"**Updated:** {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
 
     return "\n".join(lines)
 
 
-def format_task_list_markdown(tasks: list, total: int) -> str:
-    """Format a list of tasks as Markdown."""
-    if not tasks:
-        return "No tasks found."
+# ============================================================================
+# User Elicitation Forms (Pydantic Models)
+# ============================================================================
 
-    lines = [f"# Tasks ({len(tasks)} of {total})", ""]
+
+class TaskCreationForm(BaseModel):
+    """Interactive form for creating a new task."""
+
+    title: str = Field(description="Task title (required)")
+    description: str = Field(default="", description="Detailed description (optional)")
+    priority: Literal["low", "medium", "high"] = Field(
+        default="medium", description="Task priority"
+    )
+    due_date: str = Field(default="", description="Due date in YYYY-MM-DD format (optional)")
+
+
+class TaskUpdateForm(BaseModel):
+    """Interactive form for updating an existing task."""
+
+    title: str = Field(default="", description="New task title (leave empty to keep current)")
+    description: str = Field(default="", description="New description (leave empty to keep current)")
+    priority: str = Field(
+        default="", description="New priority: low, medium, high (leave empty to keep current)"
+    )
+    status: str = Field(
+        default="", description="New status: todo, in_progress, done (leave empty to keep current)"
+    )
+    due_date: str = Field(default="", description="New due date YYYY-MM-DD (leave empty to keep current)")
+
+
+class TaskDeletionConfirmation(BaseModel):
+    """Confirmation form for deleting a task."""
+
+    confirm: bool = Field(
+        default=False,
+        description="Confirm deletion (true to delete, false to cancel)",
+    )
+
+
+# ============================================================================
+# Tools with User Elicitation
+# ============================================================================
+
+
+@mcp.tool()
+async def create_task_interactive(ctx: Context) -> str:
+    """Create a new task with an interactive form.
+
+    This tool presents a form to collect all task details interactively,
+    making it easy to create well-structured tasks with all necessary information.
+    """
+    # Request structured input from user
+    result = await ctx.elicit(
+        message="Please provide task details",
+        response_type=TaskCreationForm,
+    )
+
+    # Handle user response
+    if result.action == "accept":
+        task_data = result.data
+
+        # Parse due_date if provided
+        parsed_due_date = None
+        if task_data.due_date and task_data.due_date.strip():
+            try:
+                parsed_due_date = datetime.strptime(task_data.due_date.strip(), "%Y-%m-%d").date()
+            except ValueError:
+                return f"❌ Invalid date format: {task_data.due_date}. Use YYYY-MM-DD"
+
+        # Create task in database
+        service = get_service()
+        task = service.create_task(
+            title=task_data.title,
+            description=task_data.description if task_data.description.strip() else None,
+            priority=Priority(task_data.priority),
+            due_date=parsed_due_date,
+        )
+
+        return f"✅ **Created task #{task.id}:** {task.title}\n\n{format_task_markdown(task)}"
+
+    elif result.action == "decline":
+        return "❌ Task creation declined - no changes made"
+
+    else:  # cancel
+        return "🚫 Task creation cancelled"
+
+
+@mcp.tool()
+async def update_task_interactive(ctx: Context, task_id: int) -> str:
+    """Update an existing task with an interactive form showing current values.
+
+    This tool fetches the current task and presents a form pre-filled with
+    existing values, making it easy to see what you're changing.
+
+    Args:
+        task_id: The ID of the task to update
+    """
+    service = get_service()
+
+    # Fetch current task
+    task = service.get_task(task_id)
+    if not task:
+        return f"❌ Task #{task_id} not found"
+
+    # Request updates with current values shown
+    result = await ctx.elicit(
+        message=f"Update task #{task_id}: {task.title}\n\nCurrent values will be shown in the form. Leave fields empty to keep current values.",
+        response_type=TaskUpdateForm,
+    )
+
+    if result.action == "accept":
+        updates = result.data
+
+        # Build update dict with only changed fields (non-empty strings)
+        update_dict = {}
+        if updates.title and updates.title.strip():
+            update_dict["title"] = updates.title.strip()
+        if updates.description and updates.description.strip():
+            update_dict["description"] = updates.description.strip()
+        if updates.priority and updates.priority.strip():
+            try:
+                update_dict["priority"] = Priority(updates.priority.strip())
+            except ValueError:
+                return f"❌ Invalid priority: {updates.priority}. Use: low, medium, high"
+        if updates.status and updates.status.strip():
+            try:
+                update_dict["status"] = TaskStatus(updates.status.strip())
+            except ValueError:
+                return f"❌ Invalid status: {updates.status}. Use: todo, in_progress, done"
+        if updates.due_date and updates.due_date.strip():
+            try:
+                update_dict["due_date"] = datetime.strptime(updates.due_date.strip(), "%Y-%m-%d").date()
+            except ValueError:
+                return f"❌ Invalid date format: {updates.due_date}. Use YYYY-MM-DD"
+
+        if not update_dict:
+            return "ℹ️ No changes made - all fields were empty"
+
+        # Update the task
+        updated_task = service.update_task(task_id, **update_dict)
+
+        changed_fields = ", ".join(update_dict.keys())
+        return f"✅ **Updated task #{task_id}:** {changed_fields}\n\n{format_task_markdown(updated_task)}"
+
+    elif result.action == "decline":
+        return "❌ Update declined - no changes made"
+
+    else:  # cancel
+        return "🚫 Update cancelled"
+
+
+@mcp.tool()
+async def delete_task_interactive(ctx: Context, task_id: int) -> str:
+    """Delete a task with confirmation dialog.
+
+    This tool shows task details and asks for confirmation before deletion
+    to prevent accidental data loss.
+
+    Args:
+        task_id: The ID of the task to delete
+    """
+    service = get_service()
+
+    # Fetch task to show details
+    task = service.get_task(task_id)
+    if not task:
+        return f"❌ Task #{task_id} not found"
+
+    # Request confirmation
+    result = await ctx.elicit(
+        message=f"⚠️ **Confirm Deletion**\n\n{format_task_markdown(task)}\n\nThis action cannot be undone.",
+        response_type=TaskDeletionConfirmation,
+    )
+
+    if result.action == "accept" and result.data.confirm:
+        # Delete the task
+        service.delete_task(task_id)
+        return f"✅ Deleted task #{task_id}: {task.title}"
+
+    elif result.action == "decline" or not result.data.confirm:
+        return "❌ Deletion declined - task preserved"
+
+    else:  # cancel
+        return "🚫 Deletion cancelled - task preserved"
+
+
+# ============================================================================
+# Standard Tools (Non-Interactive)
+# ============================================================================
+
+
+@mcp.tool()
+def create_task(
+    title: str,
+    description: str | None = None,
+    priority: Literal["low", "medium", "high"] = "medium",
+    status: Literal["todo", "in_progress", "done"] = "todo",
+    due_date: str | None = None,
+    tags: list[str] | None = None,
+) -> str:
+    """Create a new task (non-interactive version).
+
+    Use this when you already have all the task details.
+    For interactive creation with a form, use create_task_interactive instead.
+
+    Args:
+        title: Task title
+        description: Detailed description
+        priority: Task priority (low, medium, high)
+        status: Initial status (todo, in_progress, done)
+        due_date: Due date in YYYY-MM-DD format
+        tags: List of tags for organization
+    """
+    service = get_service()
+
+    # Parse due_date if provided
+    parsed_due_date = None
+    if due_date:
+        try:
+            parsed_due_date = datetime.strptime(due_date, "%Y-%m-%d").date()
+        except ValueError:
+            return f"❌ Invalid date format: {due_date}. Use YYYY-MM-DD"
+
+    # Create the task
+    task = service.create_task(
+        title=title,
+        description=description,
+        priority=Priority(priority),
+        status=TaskStatus(status),
+        due_date=parsed_due_date,
+        tags=tags,
+    )
+
+    return f"✅ **Created task #{task.id}:** {task.title}\n\n{format_task_markdown(task)}"
+
+
+@mcp.tool()
+def list_tasks(
+    status: Literal["todo", "in_progress", "done", "all"] = "all",
+    priority: Literal["low", "medium", "high", "all"] = "all",
+    tag: str | None = None,
+    overdue_only: bool = False,
+) -> str:
+    """List tasks with optional filtering.
+
+    Args:
+        status: Filter by status (todo, in_progress, done, all)
+        priority: Filter by priority (low, medium, high, all)
+        tag: Filter by tag
+        overdue_only: Show only overdue tasks
+    """
+    service = get_service()
+
+    # Build filters
+    filters = {}
+    if status != "all":
+        filters["status"] = TaskStatus(status)
+    if priority != "all":
+        filters["priority"] = Priority(priority)
+    if tag:
+        filters["tag"] = tag
+
+    # Get tasks (service returns tuple of tasks and total count)
+    tasks, total = service.list_tasks(**filters)
+
+    # Filter overdue if requested
+    if overdue_only:
+        today = date.today()
+        tasks = [
+            t
+            for t in tasks
+            if t.due_date
+            and t.due_date < today
+            and t.status not in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]
+        ]
+
+    if not tasks:
+        return "📭 No tasks found matching the criteria"
+
+    # Format output
+    lines = [f"📋 **Found {len(tasks)} task(s)**\n"]
 
     for task in tasks:
-        status_icons = {
-            TaskStatus.PENDING: "○",
-            TaskStatus.IN_PROGRESS: "◐",
-            TaskStatus.COMPLETED: "✓",
-            TaskStatus.ARCHIVED: "✖",
-        }
-        icon = status_icons.get(task.status, "?")
+        status_emoji = {
+            TaskStatus.PENDING: "⭕",
+            TaskStatus.IN_PROGRESS: "🔄",
+            TaskStatus.COMPLETED: "✅",
+            TaskStatus.ARCHIVED: "📦",
+        }.get(task.status, "❓")
 
-        due_str = ""
+        priority_emoji = {
+            Priority.HIGH: "🔴",
+            Priority.MEDIUM: "🟡",
+            Priority.LOW: "🟢",
+        }.get(task.priority, "⚪")
+
+        due_info = ""
         if task.due_date:
             is_overdue = task.due_date < date.today() and task.status not in [
-                TaskStatus.COMPLETED, TaskStatus.ARCHIVED
+                TaskStatus.COMPLETED,
+                TaskStatus.ARCHIVED,
             ]
-            due_str = f" (due: {task.due_date}{'⚠️' if is_overdue else ''})"
+            due_info = f" | Due: {task.due_date}" + (" ⚠️ OVERDUE" if is_overdue else "")
 
-        lines.append(f"- {icon} **#{task.id}**: {task.title}{due_str}")
-        if task.description:
-            lines.append(f"  - {task.description[:100]}...")
-        lines.append(f"  - Priority: {task.priority.value} | Status: {task.status.value}")
-        lines.append("")
+        lines.append(
+            f"{status_emoji} {priority_emoji} **#{task.id}** {task.title}{due_info}"
+        )
 
     return "\n".join(lines)
 
 
-# Tools - AI-invocable functions
-@app.list_tools()
-async def list_tools() -> list[Tool]:
-    """List available MCP tools."""
-    return [
-        Tool(
-            name="tasks_create_task",
-            description="Create a new task with title and optional details",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Task title (required)",
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Task description (optional)",
-                    },
-                    "priority": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "urgent"],
-                        "description": "Task priority (default: medium)",
-                    },
-                    "due_date": {
-                        "type": "string",
-                        "description": "Due date in YYYY-MM-DD format (optional)",
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["pending", "in_progress", "completed", "archived"],
-                        "description": "Initial status (default: pending)",
-                    },
-                },
-                "required": ["title"],
-            },
-        ),
-        Tool(
-            name="tasks_get_task",
-            description="Get details of a specific task by ID",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "integer",
-                        "description": "ID of the task to retrieve",
-                    },
-                },
-                "required": ["task_id"],
-            },
-        ),
-        Tool(
-            name="tasks_list_tasks",
-            description="List tasks with optional filtering and pagination",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "enum": ["pending", "in_progress", "completed", "archived"],
-                        "description": "Filter by status (optional)",
-                    },
-                    "priority": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "urgent"],
-                        "description": "Filter by priority (optional)",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of tasks to return (default: 20)",
-                        "default": 20,
-                    },
-                    "offset": {
-                        "type": "integer",
-                        "description": "Number of tasks to skip (default: 0)",
-                        "default": 0,
-                    },
-                },
-            },
-        ),
-        Tool(
-            name="tasks_update_task",
-            description="Update an existing task's fields",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "integer",
-                        "description": "ID of the task to update",
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "New title (optional)",
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "New description (optional, empty string to clear)",
-                    },
-                    "priority": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high", "urgent"],
-                        "description": "New priority (optional)",
-                    },
-                    "status": {
-                        "type": "string",
-                        "enum": ["pending", "in_progress", "completed", "archived"],
-                        "description": "New status (optional)",
-                    },
-                    "due_date": {
-                        "type": "string",
-                        "description": "New due date in YYYY-MM-DD format (optional, null to clear)",
-                    },
-                },
-                "required": ["task_id"],
-            },
-        ),
-        Tool(
-            name="tasks_mark_complete",
-            description="Mark a task as completed",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "integer",
-                        "description": "ID of the task to complete",
-                    },
-                },
-                "required": ["task_id"],
-            },
-        ),
-        Tool(
-            name="tasks_delete_task",
-            description="Delete a task permanently",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "integer",
-                        "description": "ID of the task to delete",
-                    },
-                },
-                "required": ["task_id"],
-            },
-        ),
-        Tool(
-            name="tasks_get_overdue",
-            description="Get all overdue tasks",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-        Tool(
-            name="tasks_get_statistics",
-            description="Get task statistics (counts by status, overdue count)",
-            inputSchema={
-                "type": "object",
-                "properties": {},
-            },
-        ),
-    ]
+@mcp.tool()
+def get_task(task_id: int) -> str:
+    """Get detailed information about a specific task.
+
+    Args:
+        task_id: The ID of the task to retrieve
+    """
+    service = get_service()
+    task = service.get_task(task_id)
+
+    if not task:
+        return f"❌ Task #{task_id} not found"
+
+    return format_task_markdown(task)
 
 
-@app.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    """Handle tool calls from AI agents."""
+@mcp.tool()
+def update_task(
+    task_id: int,
+    title: str | None = None,
+    description: str | None = None,
+    priority: Literal["low", "medium", "high"] | None = None,
+    status: Literal["todo", "in_progress", "done"] | None = None,
+    due_date: str | None = None,
+    tags: list[str] | None = None,
+) -> str:
+    """Update a task's fields (non-interactive version).
+
+    Use this when you know exactly what to change.
+    For interactive updates with a form, use update_task_interactive instead.
+
+    Args:
+        task_id: The ID of the task to update
+        title: New task title
+        description: New description
+        priority: New priority
+        status: New status
+        due_date: New due date in YYYY-MM-DD format
+        tags: New tags
+    """
     service = get_service()
 
-    try:
-        if name == "tasks_create_task":
-            # Parse arguments
-            title = arguments["title"]
-            description = arguments.get("description")
-            priority = Priority(arguments["priority"]) if "priority" in arguments else Priority.MEDIUM
-            status = TaskStatus(arguments["status"]) if "status" in arguments else TaskStatus.PENDING
+    # Check task exists
+    existing_task = service.get_task(task_id)
+    if not existing_task:
+        return f"❌ Task #{task_id} not found"
 
-            due_date = None
-            if "due_date" in arguments:
-                try:
-                    due_date = datetime.strptime(arguments["due_date"], "%Y-%m-%d").date()
-                except ValueError:
-                    return [TextContent(
-                        type="text",
-                        text="Error: Invalid date format. Use YYYY-MM-DD",
-                    )]
+    # Build update dict
+    updates = {}
+    if title is not None:
+        updates["title"] = title
+    if description is not None:
+        updates["description"] = description
+    if priority is not None:
+        updates["priority"] = Priority(priority)
+    if status is not None:
+        updates["status"] = TaskStatus(status)
+    if tags is not None:
+        updates["tags"] = tags
 
-            # Create task
-            task = service.create_task(
-                title=title,
-                description=description,
-                priority=priority,
-                due_date=due_date,
-                status=status,
-            )
+    # Parse due_date if provided
+    if due_date is not None:
+        try:
+            updates["due_date"] = datetime.strptime(due_date, "%Y-%m-%d").date()
+        except ValueError:
+            return f"❌ Invalid date format: {due_date}. Use YYYY-MM-DD"
 
-            return [TextContent(
-                type="text",
-                text=f"✓ Created task #{task.id}: {task.title}\n\n{format_task_markdown(task)}",
-            )]
+    if not updates:
+        return "ℹ️ No updates provided - task unchanged"
 
-        elif name == "tasks_get_task":
-            task_id = arguments["task_id"]
-            task = service.get_task(task_id)
+    # Update the task
+    task = service.update_task(task_id, **updates)
 
-            return [TextContent(
-                type="text",
-                text=format_task_markdown(task),
-            )]
-
-        elif name == "tasks_list_tasks":
-            filter_status: TaskStatus | None = TaskStatus(arguments["status"]) if "status" in arguments else None
-            filter_priority: Priority | None = Priority(arguments["priority"]) if "priority" in arguments else None
-            limit = arguments.get("limit", 20)
-            offset = arguments.get("offset", 0)
-
-            tasks, total = service.list_tasks(
-                status=filter_status,
-                priority=filter_priority,
-                limit=limit,
-                offset=offset,
-            )
-
-            return [TextContent(
-                type="text",
-                text=format_task_list_markdown(tasks, total),
-            )]
-
-        elif name == "tasks_update_task":
-            task_id = arguments["task_id"]
-            title = arguments.get("title")
-            description = arguments.get("description")
-            update_priority: Priority | None = Priority(arguments["priority"]) if "priority" in arguments else None
-            update_status: TaskStatus | None = TaskStatus(arguments["status"]) if "status" in arguments else None
-
-            due_date = None
-            if "due_date" in arguments:
-                if arguments["due_date"] is None:
-                    due_date = None
-                else:
-                    try:
-                        due_date = datetime.strptime(arguments["due_date"], "%Y-%m-%d").date()
-                    except ValueError:
-                        return [TextContent(
-                            type="text",
-                            text="Error: Invalid date format. Use YYYY-MM-DD",
-                        )]
-
-            task = service.update_task(
-                task_id=task_id,
-                title=title,
-                description=description,
-                priority=update_priority,
-                status=update_status,
-                due_date=due_date,
-            )
-
-            return [TextContent(
-                type="text",
-                text=f"✓ Updated task #{task.id}\n\n{format_task_markdown(task)}",
-            )]
-
-        elif name == "tasks_mark_complete":
-            task_id = arguments["task_id"]
-            task = service.mark_complete(task_id)
-
-            return [TextContent(
-                type="text",
-                text=f"✓ Completed task #{task.id}: {task.title}",
-            )]
-
-        elif name == "tasks_delete_task":
-            task_id = arguments["task_id"]
-            service.delete_task(task_id)
-
-            return [TextContent(
-                type="text",
-                text=f"✓ Deleted task #{task_id}",
-            )]
-
-        elif name == "tasks_get_overdue":
-            tasks = service.get_overdue_tasks()
-
-            if not tasks:
-                return [TextContent(
-                    type="text",
-                    text="No overdue tasks. Great job! 🎉",
-                )]
-
-            lines = [f"# Overdue Tasks ({len(tasks)})", ""]
-            for task in tasks:
-                days_overdue = (date.today() - task.due_date).days if task.due_date else 0
-                lines.append(f"- ⚠️ **#{task.id}**: {task.title}")
-                lines.append(f"  - Due: {task.due_date} ({days_overdue} days ago)")
-                lines.append(f"  - Priority: {task.priority.value} | Status: {task.status.value}")
-                lines.append("")
-
-            return [TextContent(
-                type="text",
-                text="\n".join(lines),
-            )]
-
-        elif name == "tasks_get_statistics":
-            stats = service.get_statistics()
-
-            lines = [
-                "# Task Statistics",
-                "",
-                f"**Total Tasks:** {stats['total']}",
-                f"**Pending:** {stats['pending']}",
-                f"**In Progress:** {stats['in_progress']}",
-                f"**Completed:** {stats['completed']}",
-                f"**Archived:** {stats['archived']}",
-                f"**Overdue:** {stats['overdue']}",
-            ]
-
-            return [TextContent(
-                type="text",
-                text="\n".join(lines),
-            )]
-
-        else:
-            return [TextContent(
-                type="text",
-                text=f"Error: Unknown tool '{name}'",
-            )]
-
-    except ValueError as e:
-        return [TextContent(
-            type="text",
-            text=f"Error: {str(e)}",
-        )]
-    except Exception as e:
-        return [TextContent(
-            type="text",
-            text=f"Unexpected error: {str(e)}",
-        )]
+    changed_fields = ", ".join(updates.keys())
+    return f"✅ **Updated task #{task_id}:** {changed_fields}\n\n{format_task_markdown(task)}"
 
 
-# Resources - Contextual data access
-@app.list_resources()
-async def list_resources() -> list[Resource]:
-    """List available resources."""
-    from mcp.types import AnyUrl
-    return [
-        Resource(
-            uri=AnyUrl("stats://overview"),
-            name="Task Statistics Overview",
-            description="Overall task statistics and counts",
-            mimeType="text/markdown",
-        ),
-    ]
+@mcp.tool()
+def complete_task(task_id: int) -> str:
+    """Mark a task as completed.
 
-
-@app.read_resource()
-async def read_resource(uri: str) -> str:
-    """Read resource content."""
+    Args:
+        task_id: The ID of the task to complete
+    """
     service = get_service()
 
-    if uri == "stats://overview":
-        stats = service.get_statistics()
+    task = service.get_task(task_id)
+    if not task:
+        return f"❌ Task #{task_id} not found"
 
-        lines = [
-            "# Task Statistics Overview",
-            "",
-            f"- **Total Tasks:** {stats['total']}",
-            f"- **Pending:** {stats['pending']}",
-            f"- **In Progress:** {stats['in_progress']}",
-            f"- **Completed:** {stats['completed']}",
-            f"- **Archived:** {stats['archived']}",
-            f"- **Overdue:** {stats['overdue']}",
-        ]
-
-        return "\n".join(lines)
-
-    raise ValueError(f"Unknown resource: {uri}")
+    task = service.update_task(task_id, status=TaskStatus.COMPLETED)
+    return f"✅ **Completed task #{task_id}:** {task.title}\n\n{format_task_markdown(task)}"
 
 
-async def run_server() -> None:
-    """Run the MCP server with stdio transport."""
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(
-            read_stream,
-            write_stream,
-            app.create_initialization_options(),
-        )
+@mcp.tool()
+def delete_task(task_id: int) -> str:
+    """Delete a task immediately without confirmation (non-interactive version).
+
+    ⚠️ WARNING: This permanently deletes the task without confirmation.
+    For safe deletion with confirmation, use delete_task_interactive instead.
+
+    Args:
+        task_id: The ID of the task to delete
+    """
+    service = get_service()
+
+    task = service.get_task(task_id)
+    if not task:
+        return f"❌ Task #{task_id} not found"
+
+    title = task.title
+    service.delete_task(task_id)
+    return f"✅ Deleted task #{task_id}: {title}"
 
 
-def main() -> None:
-    """Console script entry point for the MCP server."""
-    import asyncio
-    asyncio.run(run_server())
+# ============================================================================
+# Resources
+# ============================================================================
+
+
+@mcp.resource("tasks://stats")
+def get_stats() -> str:
+    """Get task statistics and overview."""
+    service = get_service()
+
+    all_tasks, total = service.list_tasks()
+
+    if total == 0:
+        return "📊 **Task Statistics**\n\nNo tasks yet. Create your first task to get started!"
+
+    # Status breakdown
+    status_counts = {}
+    for task in all_tasks:
+        status_counts[task.status] = status_counts.get(task.status, 0) + 1
+
+    # Priority breakdown
+    priority_counts = {}
+    for task in all_tasks:
+        priority_counts[task.priority] = priority_counts.get(task.priority, 0) + 1
+
+    # Overdue tasks
+    today = date.today()
+    overdue = [
+        t
+        for t in all_tasks
+        if t.due_date
+        and t.due_date < today
+        and t.status not in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]
+    ]
+
+    # Build stats output
+    lines = [
+        "📊 **Task Statistics**",
+        "",
+        f"**Total Tasks:** {total}",
+        "",
+        "**By Status:**",
+        f"  ⭕ Pending: {status_counts.get(TaskStatus.PENDING, 0)}",
+        f"  🔄 In Progress: {status_counts.get(TaskStatus.IN_PROGRESS, 0)}",
+        f"  ✅ Completed: {status_counts.get(TaskStatus.COMPLETED, 0)}",
+        f"  📦 Archived: {status_counts.get(TaskStatus.ARCHIVED, 0)}",
+        "",
+        "**By Priority:**",
+        f"  🔴 High: {priority_counts.get(Priority.HIGH, 0)}",
+        f"  🟡 Medium: {priority_counts.get(Priority.MEDIUM, 0)}",
+        f"  🟢 Low: {priority_counts.get(Priority.LOW, 0)}",
+    ]
+
+    if overdue:
+        lines.extend(["", f"⚠️ **Overdue Tasks:** {len(overdue)}"])
+
+    return "\n".join(lines)
+
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
+
+def main():
+    """Main entry point for the MCP server."""
+    mcp.run()
 
 
 if __name__ == "__main__":
