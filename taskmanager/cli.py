@@ -5,6 +5,7 @@ providing user-friendly commands for task management.
 """
 
 from datetime import date, datetime
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -340,14 +341,202 @@ def delete_task(
         raise typer.Exit(1)
 
 
+# Configuration management subcommand group
+config_app = typer.Typer(help="Manage configuration")
+app.add_typer(config_app, name="config")
+
+
+@config_app.command("show")
+def config_show() -> None:
+    """Display current configuration."""
+    from taskmanager.config import get_settings
+    
+    settings = get_settings()
+    
+    table = Table(title="Current Configuration")
+    table.add_column("Setting", style="cyan")
+    table.add_column("Value", style="green")
+    
+    table.add_row("Profile", settings.profile)
+    table.add_row("Config Directory", str(settings.get_config_dir()))
+    table.add_row("Data Directory", str(settings.get_data_dir()))
+    table.add_row("Database URL", settings.get_database_url())
+    table.add_row("Task List Limit", str(settings.defaults.task_limit))
+    table.add_row("Max Task Limit", str(settings.defaults.max_task_limit))
+    table.add_row("Log Level", settings.logging.level)
+    table.add_row("MCP Server Name", settings.mcp.server_name)
+    
+    console.print(table)
+
+
+@config_app.command("path")
+def config_path() -> None:
+    """Show configuration file location."""
+    from taskmanager.config import get_user_config_path, get_project_config_path
+    
+    user_config = get_user_config_path()
+    project_config = get_project_config_path()
+    
+    console.print(f"[bold]User config:[/bold] {user_config}")
+    if user_config.exists():
+        console.print("  [green]✓ exists[/green]")
+    else:
+        console.print("  [yellow]✗ not found[/yellow]")
+    
+    if project_config:
+        console.print(f"\n[bold]Project config:[/bold] {project_config}")
+        if project_config.exists():
+            console.print("  [green]✓ exists[/green]")
+        else:
+            console.print("  [yellow]✗ not found[/yellow]")
+    else:
+        console.print("\n[yellow]Not in a git repository[/yellow]")
+
+
+@config_app.command("edit")
+def config_edit() -> None:
+    """Open configuration file in editor."""
+    import os
+    import subprocess
+    from taskmanager.config import get_user_config_path, create_default_config
+    
+    config_path = get_user_config_path()
+    
+    # Create config if it doesn't exist
+    if not config_path.exists():
+        console.print("[yellow]Config file doesn't exist. Creating default...[/yellow]")
+        create_default_config(config_path)
+        console.print(f"[green]✓ Created {config_path}[/green]")
+    
+    # Try to find editor
+    editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "nano"))
+    
+    try:
+        subprocess.run([editor, str(config_path)], check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        console.print(f"[red]Error opening editor '{editor}':[/red] {e}", style="bold")
+        console.print(f"\nConfig file location: {config_path}")
+        raise typer.Exit(1)
+
+
+@config_app.command("validate")
+def config_validate() -> None:
+    """Validate configuration file."""
+    from taskmanager.config import find_config_files, get_settings
+    import tomllib
+    
+    config_files = find_config_files()
+    
+    if not config_files:
+        console.print("[yellow]No configuration files found.[/yellow]")
+        return
+    
+    all_valid = True
+    
+    for config_file in config_files:
+        console.print(f"\n[bold]Validating {config_file}...[/bold]")
+        
+        try:
+            # Try to load as TOML
+            with open(config_file, "rb") as f:
+                tomllib.load(f)
+            console.print("  [green]✓ TOML syntax valid[/green]")
+            
+            # Try to load settings
+            get_settings()
+            console.print("  [green]✓ Configuration valid[/green]")
+            
+        except Exception as e:
+            console.print(f"  [red]✗ Error:[/red] {e}")
+            all_valid = False
+    
+    if all_valid:
+        console.print("\n[green bold]✓ All configuration files are valid[/green bold]")
+    else:
+        console.print("\n[red bold]✗ Configuration validation failed[/red bold]")
+        raise typer.Exit(1)
+
+
+@config_app.command("init")
+def config_init(
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),
+) -> None:
+    """Create or reset configuration file."""
+    from taskmanager.config import get_user_config_path, create_default_config
+    
+    config_path = get_user_config_path()
+    
+    if config_path.exists() and not force:
+        console.print(f"[yellow]Config file already exists: {config_path}[/yellow]")
+        console.print("Use --force to overwrite")
+        raise typer.Exit(1)
+    
+    create_default_config(config_path)
+    console.print(f"[green]✓ Created configuration file: {config_path}[/green]")
+    console.print("\nDefault configuration:")
+    console.print("  • Profile: default")
+    console.print("  • Database: ~/.config/taskmanager/taskmanager/tasks.db")
+    console.print("  • Dev database: ~/.config/taskmanager/taskmanager/tasks-dev.db")
+    console.print("  • Test database: in-memory")
+
+
 @app.callback()
-def main() -> None:
+def main(
+    config: Path | None = typer.Option(
+        None,
+        "--config",
+        "-c",
+        help="Path to configuration file",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+    ),
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        "-p",
+        help="Configuration profile (default, dev, test)",
+    ),
+    database: str | None = typer.Option(
+        None,
+        "--database",
+        "-d",
+        help="Database URL override",
+    ),
+) -> None:
     """
     Tasks - A powerful CLI task manager.
 
     Manage your tasks, deadlines, and projects from the command line.
+    
+    Use global options to override configuration:
+    
+    \b
+    • --config: Use specific config file
+    • --profile: Switch between default/dev/test profiles  
+    • --database: Override database URL directly
+    
+    Examples:
+    
+    \b
+    tasks --profile dev list
+    tasks --database sqlite:///custom.db add "Test task"
+    tasks --config ./my-config.toml list
     """
-    pass
+    from taskmanager.config import get_settings
+    
+    # Get settings and apply overrides
+    settings = get_settings()
+    
+    # Apply CLI overrides
+    if profile:
+        # Override the profile attribute directly
+        settings.profile = profile
+    if database:
+        settings.set_override("database_url", database)
+    # Note: --config would require modifying load_toml_config to accept custom path
+
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ dependencies = [
     "alembic>=1.13.0",
     "fastmcp>=3.0.0b1",
     "mcp>=1.23",
+    "tomli-w>=1.0.0",  # TOML writing support
 ]
 
 [project.optional-dependencies]
