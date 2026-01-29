@@ -254,6 +254,168 @@ Access task statistics:
   - Priority breakdown (high, medium, low)
   - Overdue count
 
+## Configuration
+
+The task manager uses a flexible configuration system with TOML files, environment variables, and CLI flags.
+
+### Configuration File Locations
+
+Configuration is loaded in priority order (highest first):
+
+1. **CLI Flags**: `--config`, `--profile`, `--database` (highest priority)
+2. **Environment Variables**: `TASKMANAGER_*` prefix
+3. **Project Config**: `./taskmanager.toml` (relative to git root, team-shared)
+4. **User Config**: `~/.config/taskmanager/config.toml` (XDG standard)
+5. **Defaults**: Hardcoded sensible defaults (lowest priority)
+
+### Configuration File Format
+
+The configuration file uses TOML format with the following structure:
+
+```toml
+# ~/.config/taskmanager/config.toml
+
+[general]
+profile = "default"  # Active profile: default, dev, test
+
+[database]
+# Profile-specific database URLs with path tokens
+[database.profiles]
+default = "sqlite:///{config}/taskmanager/tasks.db"
+dev = "sqlite:///{config}/taskmanager/tasks-dev.db"
+test = "sqlite:///:memory:"
+
+[defaults]
+task_limit = 20          # Default number of tasks in list commands
+max_task_limit = 100     # Maximum tasks per query
+
+[logging]
+level = "INFO"           # Log level: DEBUG, INFO, WARNING, ERROR
+# file = "{config}/taskmanager/taskmanager.log"  # Uncomment to enable file logging
+
+[mcp]
+server_name = "tasks_mcp"
+transport = "stdio"
+```
+
+### Profile System
+
+Profiles allow easy switching between databases without manual URL changes.
+
+**Available Profiles:**
+- **`default`**: Production database at `~/.config/taskmanager/tasks.db`
+- **`dev`**: Development database at `~/.config/taskmanager/tasks-dev.db`
+- **`test`**: In-memory database for testing (`sqlite:///:memory:`)
+
+**Usage:**
+
+```bash
+# Use dev profile
+tasks --profile dev list
+
+# Use test profile
+tasks --profile test add "Test task"
+
+# Override database directly
+tasks --database "sqlite:///custom.db" list
+
+# Use custom config file
+tasks --config ./my-config.toml list
+```
+
+### Path Token Expansion
+
+Configuration paths support tokens for portability:
+
+- **`{config}`**: Expands to `~/.config/taskmanager`
+- **`{home}`**: Expands to user home directory (`~`)
+- **`{data}`**: Expands to `~/.local/share/taskmanager`
+
+**Example:**
+```toml
+[database.profiles]
+default = "sqlite:///{config}/tasks.db"  # → ~/.config/taskmanager/tasks.db
+backup = "sqlite:///{home}/Dropbox/tasks.db"  # → ~/Dropbox/tasks.db
+```
+
+### Environment Variables
+
+Override configuration with environment variables:
+
+```bash
+export TASKMANAGER_PROFILE=dev
+export TASKMANAGER_DATABASE_URL="sqlite:///custom.db"
+export TASKMANAGER_LOG_LEVEL=DEBUG
+
+tasks list  # Uses environment config
+```
+
+### Configuration Commands
+
+```bash
+# Show current effective configuration
+tasks config show
+
+# Show config file location
+tasks config path
+
+# Open config file in $EDITOR
+tasks config edit
+
+# Validate config file syntax
+tasks config validate
+
+# Create/reset config file with defaults
+tasks config init
+tasks config init --force  # Overwrite existing
+```
+
+### Auto-Initialization
+
+On first run, the task manager automatically creates:
+- Configuration directory: `~/.config/taskmanager/`
+- Default config file: `config.toml` with sensible defaults
+- Database file (based on active profile)
+
+### Project Configuration
+
+For team-shared settings, create `taskmanager.toml` in your git repository root:
+
+```toml
+# ./taskmanager.toml (project config)
+
+[general]
+profile = "dev"  # Team uses dev profile by default
+
+[database.profiles]
+dev = "sqlite:///{home}/.taskmanager/project-dev.db"
+```
+
+**Benefits:**
+- Team shares same configuration
+- Git-tracked settings
+- Per-project database locations
+- Still overridable per-user
+
+### MCP Server Configuration
+
+The MCP server uses the same configuration system as the CLI:
+
+```json
+{
+  "mcpServers": {
+    "tasks": {
+      "command": "tasks-mcp",
+      "env": {
+        "TASKMANAGER_PROFILE": "default"
+      }
+    }
+  }
+}
+```
+
+Set `TASKMANAGER_PROFILE=test` to point the MCP server at a test database.
+
 ## Architecture
 
 ### Layered Design

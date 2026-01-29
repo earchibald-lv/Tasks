@@ -29,11 +29,22 @@ The app is CLI-first but designed with a pluggable architecture to allow for fut
 - **MCP Development**: MCP Inspector for testing and debugging MCP tools
 
 ### Configuration & Deployment
-- **Configuration**: Pydantic Settings with TOML/env file support
-- **Data Location**: `~/.taskmanager/` (database, config, logs)
+- **Configuration System**: Pydantic Settings with TOML file + environment variables + CLI flags
+- **Config File Locations**:
+  - User config: `~/.config/taskmanager/config.toml` (XDG Base Directory standard)
+  - Project config: `./taskmanager.toml` (git-tracked team settings)
+  - Config priority: CLI flags > env vars > project config > user config > defaults
+- **Configuration Profiles**: `default`, `dev`, `test` (switchable via `--profile` flag)
+- **Path Token Expansion**: `{config}`, `{home}`, `{data}` for portable paths
+- **Data Location**: `~/.config/taskmanager/` (database, logs)
+- **Database Paths**:
+  - Default: `sqlite:///{config}/taskmanager/tasks.db`
+  - Dev: `sqlite:///{config}/taskmanager/tasks-dev.db`
+  - Test: `sqlite:///:memory:` (in-memory for fast testing)
 - **CLI Command Name**: `tasks` (short, clear, memorable)
 - **MCP Server Name**: `tasks_mcp`
 - **MCP Transport**: stdio (local, single-user)
+- **Auto-Initialization**: Config file auto-created on first run with defaults
 
 ## Architecture
 
@@ -199,11 +210,26 @@ tasks show 42
 tasks delete 42
 ```
 
-### Future Commands (Post-Iteration 1)
+### Configuration Commands (Phase 4.5)
+```bash
+tasks config show                      # Display current configuration
+tasks config path                      # Show config file location
+tasks config edit                      # Open config in $EDITOR
+tasks config validate                  # Check config file validity
+tasks config init [--force]            # Create/reset config file
+```
+
+### Global CLI Options (Phase 4.5)
+```bash
+tasks --config PATH <command>          # Use specific config file
+tasks --profile PROFILE <command>      # Use profile (default/dev/test)
+tasks --database URL <command>         # Override database URL
+```
+
+### Future Commands (Post-Phase 5)
 - `tasks search <query>` - Full-text search
 - `tasks tag <id> <tag>` - Tag management
 - `tasks project` - Project management
-- `tasks config` - Configuration
 - `tasks stats` - Statistics and reports
 
 ## MCP Server Integration
@@ -215,7 +241,8 @@ tasks delete 42
 - **Command**: `tasks-mcp` (globally installed via pipx)
 - **Transport**: stdio (for local/single-user operation)
 - **Capabilities**: Tools, Resources, User Elicitation (interactive forms)
-- **Shared Database**: Same SQLite database as CLI (`~/.taskmanager/tasks.db`)
+- **Shared Configuration**: Uses same config file as CLI (`~/.config/taskmanager/config.toml`)
+- **Shared Database**: Same SQLite database as CLI (configurable via profiles)
 - **Installation**: `pipx install -e .` for editable development mode
 
 ### MCP Tools (AI-Invocable Actions)
@@ -496,10 +523,67 @@ mcp-inspector python -m mcp_server.server
 
 ### Configuration Management
 
-- **Settings File**: `~/.taskmanager/config.toml`
-- **Environment Variables**: `TASKMANAGER_*` prefix
-- **CLI Override**: Command-line flags take precedence
-- **Defaults**: Sensible defaults for all settings
+#### Configuration Files
+- **User Config**: `~/.config/taskmanager/config.toml` (XDG standard location)
+- **Project Config**: `./taskmanager.toml` (relative to git root, team-shared)
+- **Auto-Creation**: Config file created with defaults on first run
+- **Format**: TOML (human-friendly, comments supported)
+
+#### Configuration Hierarchy (Priority Order)
+1. **CLI Flags**: `--config`, `--profile`, `--database` (highest priority)
+2. **Environment Variables**: `TASKMANAGER_*` prefix
+3. **Project Config**: `./taskmanager.toml` (git-tracked)
+4. **User Config**: `~/.config/taskmanager/config.toml`
+5. **Defaults**: Hardcoded sensible defaults (lowest priority)
+
+#### Profile System
+- **Profile Names**: `default`, `dev`, `test`
+- **Usage**: `tasks --profile dev list` or set `profile = "dev"` in config
+- **Database Mapping**:
+  - `default`: Production database at `~/.config/taskmanager/tasks.db`
+  - `dev`: Development database at `~/.config/taskmanager/tasks-dev.db`
+  - `test`: In-memory database for fast testing (`sqlite:///:memory:`)
+- **Benefits**: Easy switching between databases without manual URL changes
+
+#### Path Token Expansion
+- `{config}`: Expands to `~/.config/taskmanager`
+- `{home}`: Expands to user home directory
+- `{data}`: Expands to `~/.local/share/taskmanager`
+- **Usage**: `"sqlite:///{config}/tasks.db"` → portable across systems
+
+#### Example Configuration File
+```toml
+# ~/.config/taskmanager/config.toml
+
+[general]
+profile = "default"  # default, dev, test
+
+[database]
+# Profile-specific database URLs
+[database.profiles]
+default = "sqlite:///{config}/taskmanager/tasks.db"
+dev = "sqlite:///{config}/taskmanager/tasks-dev.db"
+test = "sqlite:///:memory:"
+
+[defaults]
+task_limit = 20
+max_task_limit = 100
+
+[logging]
+level = "INFO"  # DEBUG, INFO, WARNING, ERROR
+# file = "{config}/taskmanager/taskmanager.log"
+
+[mcp]
+server_name = "tasks_mcp"
+transport = "stdio"
+```
+
+#### Configuration Commands
+- `tasks config show`: Display current effective configuration
+- `tasks config path`: Print config file location
+- `tasks config edit`: Open config file in $EDITOR
+- `tasks config validate`: Check config file syntax and values
+- `tasks config init`: Create default config file
 
 ### Documentation Standards
 
@@ -584,13 +668,27 @@ In the first iteration, we will focus on the core functionality of the app: crea
 - ✅ Fixed one-click installation button with correct URL encoding
 - ✅ Documented Pydantic form models and interactive tools
 
-#### Phase 4: Integration & Polish - IN PROGRESS
-- ⬜ End-to-end integration testing
-- ⬜ Cross-interface consistency verification
-- ⬜ Error handling refinement
-- ⬜ Documentation (README, docstrings)
-- ⬜ Performance optimization
-- ⬜ User acceptance testing
+#### Phase 4: Integration & Polish ✅ COMPLETE
+- ✅ **Comprehensive Documentation**: README.md with FastMCP 3.0 features
+- ✅ **Docstring Verification**: 100% coverage across codebase
+- ✅ **Error Handling**: All MCP tools wrapped in try-except blocks
+- ✅ **Integration Testing**: 12 tests validating database persistence
+- ✅ **Performance Optimization**: 14 performance tests, SQL COUNT optimization
+- ✅ **Test Suite**: 95 tests passing (69 unit + 12 integration + 14 performance)
+- ✅ **Code Quality**: 32% overall coverage (99% service, 98% repository)
+
+#### Phase 4.5: Configuration System ⬜ IN PROGRESS
+- ⬜ **TOML Configuration**: Pydantic Settings with TOML file support
+- ⬜ **XDG Directories**: Move to `~/.config/taskmanager/config.toml`
+- ⬜ **Profile System**: `default`, `dev`, `test` profiles for database selection
+- ⬜ **Path Token Expansion**: `{config}`, `{home}`, `{data}` tokens
+- ⬜ **Multi-Config Support**: User config + project config (git root)
+- ⬜ **CLI Global Options**: `--config`, `--profile`, `--database` flags
+- ⬜ **Config Subcommand**: `show`, `path`, `edit`, `validate`, `init`
+- ⬜ **Auto-Initialization**: Create default config on first run
+- ⬜ **MCP Integration**: MCP server uses same config system
+- ⬜ **Testing**: Config loading, profile switching, precedence
+- ⬜ **Documentation**: Configuration guide in README
 
 ### Success Criteria
 
