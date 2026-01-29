@@ -466,8 +466,8 @@ async def read_resource(uri: str) -> str:
     raise ValueError(f"Unknown resource: {uri}")
 
 
-async def main() -> None:
-    """Run the MCP server."""
+async def run_server() -> None:
+    """Run the MCP server with stdio transport."""
     async with stdio_server() as (read_stream, write_stream):
         await app.run(
             read_stream,
@@ -476,6 +476,11 @@ async def main() -> None:
         )
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Console script entry point for the MCP server."""
     import asyncio
-    asyncio.run(main())
+    asyncio.run(run_server())
+
+
+if __name__ == "__main__":
+    main()

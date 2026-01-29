@@ -14,6 +14,7 @@ The Tasks MCP (Model Context Protocol) server allows AI assistants like Claude i
 ## Prerequisites
 
 - Python 3.12 installed
+- `pipx` installed ([installation guide](https://pipx.pypa.io/stable/installation/))
 - VS Code with Claude or another MCP-compatible AI assistant
 - Tasks project cloned/downloaded to your machine
 
@@ -23,9 +24,9 @@ The Tasks MCP (Model Context Protocol) server allows AI assistants like Claude i
 
 Click the button below to install the Tasks MCP server in VS Code:
 
-[![Install Tasks MCP Server](https://img.shields.io/badge/Install_in_VS_Code-Tasks_MCP-blue?style=for-the-badge&logo=visualstudiocode)](vscode:mcp/install?%7B%22mcpServers%22%3A%7B%22tasks_mcp%22%3A%7B%22command%22%3A%22python%22%2C%22args%22%3A%5B%22-m%22%2C%22mcp_server.server%22%5D%2C%22cwd%22%3A%22%24%7BworkspaceFolder%7D%22%7D%7D%7D)
+[![Install Tasks MCP Server](https://img.shields.io/badge/Install_in_VS_Code-Tasks_MCP-blue?style=for-the-badge&logo=visualstudiocode)](vscode:mcp/install?%7B%22mcpServers%22%3A%7B%22tasks_mcp%22%3A%7B%22command%22%3A%22tasks-mcp%22%7D%7D%7D)
 
-**Note:** You need to open this README in VS Code and click the link, or manually copy the installation URL.
+**Note:** You must first install the package via `pipx install /path/to/Tasks` before using this one-click configuration.
 
 **After clicking:**
 1. VS Code will prompt you to confirm the installation
@@ -36,6 +37,18 @@ Click the button below to install the Tasks MCP server in VS Code:
 ### Method 2: Manual VS Code Configuration
 
 If the one-click installation doesn't work, you can manually configure the MCP server:
+
+#### Step 0: Install the package via pipx
+
+```bash
+# Install from local project directory
+pipx install /absolute/path/to/your/Tasks/project
+
+# Or install in editable mode for development
+pipx install --editable /absolute/path/to/your/Tasks/project
+```
+
+This installs the `tasks-mcp` command globally, making it available to VS Code.
 
 #### Step 1: Find your VS Code MCP settings
 
@@ -52,35 +65,13 @@ Add the following configuration to your MCP settings file:
 {
   "mcpServers": {
     "tasks_mcp": {
-      "command": "python",
-      "args": [
-        "-m",
-        "mcp_server.server"
-      ],
-      "cwd": "/absolute/path/to/your/Tasks/project",
-      "env": {}
+      "command": "tasks-mcp"
     }
   }
 }
 ```
 
-**Important:** Replace `/absolute/path/to/your/Tasks/project` with the actual path to your Tasks project directory.
-
-#### Alternative: Use direct path to server.py
-
-```json
-{
-  "mcpServers": {
-    "tasks_mcp": {
-      "command": "python",
-      "args": [
-        "/absolute/path/to/your/Tasks/project/mcp_server/server.py"
-      ],
-      "env": {}
-    }
-  }
-}
-```
+**Note:** This assumes you've installed the package via `pipx install /path/to/Tasks` which makes the `tasks-mcp` command globally available.
 
 #### Step 3: Reload VS Code
 
@@ -175,9 +166,9 @@ AI: [Uses tasks_get_statistics tool]
 **Issue:** MCP server doesn't show up in available servers
 
 **Solutions:**
-1. Check that the path in your configuration is correct
-2. Verify Python 3.12 is installed: `python --version`
-3. Ensure MCP package is installed: `pip install "mcp>=0.9.0"`
+1. Ensure the package is installed via pipx: `pipx install /path/to/Tasks`
+2. Verify the command is available: `which tasks-mcp`
+3. Verify Python 3.12 is installed: `python --version`
 4. Check VS Code's output panel for MCP errors
 5. Try reloading VS Code completely
 
@@ -186,15 +177,9 @@ AI: [Uses tasks_get_statistics tool]
 **Issue:** Server fails with module import errors
 
 **Solutions:**
-1. Install project dependencies:
+1. Reinstall via pipx with all dependencies:
    ```bash
-   cd /path/to/Tasks/project
-   pip install -e .
-   ```
-2. Or ensure your `cwd` in the MCP config points to the project root
-3. Verify all dependencies are installed:
-   ```bash
-   pip install sqlmodel typer rich pydantic-settings mcp
+   pipx install --force /path/to/Tasks/project
    ```
 
 ### Database Errors
@@ -215,8 +200,7 @@ AI: [Uses tasks_get_statistics tool]
 You can test the MCP server directly using the stdio transport:
 
 ```bash
-cd /path/to/Tasks/project
-echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' | python mcp_server/server.py
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0.0"}}}' | tasks-mcp
 ```
 
 You should see a JSON response with server capabilities.
@@ -248,9 +232,7 @@ You can pass environment variables to the MCP server:
 {
   "mcpServers": {
     "tasks_mcp": {
-      "command": "python",
-      "args": ["-m", "mcp_server.server"],
-      "cwd": "/path/to/Tasks",
+      "command": "tasks-mcp",
       "env": {
         "TASKMANAGER_DATA_DIR": "/custom/path/to/data",
         "TASKMANAGER_DATABASE_URL": "sqlite:////custom/path/tasks.db"
@@ -268,17 +250,13 @@ You can run multiple instances with different configurations:
 {
   "mcpServers": {
     "tasks_mcp_personal": {
-      "command": "python",
-      "args": ["-m", "mcp_server.server"],
-      "cwd": "/path/to/Tasks",
+      "command": "tasks-mcp",
       "env": {
         "TASKMANAGER_DATA_DIR": "~/.taskmanager-personal"
       }
     },
     "tasks_mcp_work": {
-      "command": "python",
-      "args": ["-m", "mcp_server.server"],
-      "cwd": "/path/to/Tasks",
+      "command": "tasks-mcp",
       "env": {
         "TASKMANAGER_DATA_DIR": "~/.taskmanager-work"
       }
