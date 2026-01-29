@@ -182,8 +182,6 @@ class TaskService:
             task.priority = priority
 
         if due_date is not None:
-            if due_date < date.today():
-                raise ValueError("Due date cannot be in the past")
             task.due_date = due_date
 
         if status is not None:

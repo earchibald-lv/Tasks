@@ -4,6 +4,7 @@
  This document outlines the initial list of user tasks and to-dos to use as a dataset for testing the use of the application. The to-dos are not yet formatted to any specification, it is just a list of notes. These will be refined and formatted as we develop the application.
 
  ## Initial Tasks
+ - javier: update cloudfront distributions to TLS 1.2! SRE-5224. Originally from December, then I lost track of who asked me!
  - Jason asks for DNS logging: I think we talked about DNS logging but I don't think I asked you to work on it? https://jira.livevox.com/browse/SRE-5337
  - Javier needs lv-na4 subnets updated for ECS. Javier Imbus on Slack, https://livevox.slack.com/archives/D7AJJCHU5/p1769715548454999 2026-01-30 netops,sre,task,subnets,na4
  - 

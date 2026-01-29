@@ -309,64 +309,69 @@ def list_tasks(
         tag: Filter by tag
         overdue_only: Show only overdue tasks
     """
-    service = get_service()
+    try:
+        service = get_service()
 
-    # Build filters
-    filters = {}
-    if status != "all":
-        filters["status"] = TaskStatus(status)
-    if priority != "all":
-        filters["priority"] = Priority(priority)
-    if tag:
-        filters["tag"] = tag
+        # Build filters
+        filters = {}
+        if status != "all":
+            filters["status"] = TaskStatus(status)
+        if priority != "all":
+            filters["priority"] = Priority(priority)
+        if tag:
+            filters["tag"] = tag
 
-    # Get tasks (service returns tuple of tasks and total count)
-    tasks, total = service.list_tasks(**filters)
+        # Get tasks (service returns tuple of tasks and total count)
+        tasks, total = service.list_tasks(**filters)
 
-    # Filter overdue if requested
-    if overdue_only:
-        today = date.today()
-        tasks = [
-            t
-            for t in tasks
-            if t.due_date
-            and t.due_date < today
-            and t.status not in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]
-        ]
-
-    if not tasks:
-        return "📭 No tasks found matching the criteria"
-
-    # Format output
-    lines = [f"📋 **Found {len(tasks)} task(s)**\n"]
-
-    for task in tasks:
-        status_emoji = {
-            TaskStatus.PENDING: "⭕",
-            TaskStatus.IN_PROGRESS: "🔄",
-            TaskStatus.COMPLETED: "✅",
-            TaskStatus.ARCHIVED: "📦",
-        }.get(task.status, "❓")
-
-        priority_emoji = {
-            Priority.HIGH: "🔴",
-            Priority.MEDIUM: "🟡",
-            Priority.LOW: "🟢",
-        }.get(task.priority, "⚪")
-
-        due_info = ""
-        if task.due_date:
-            is_overdue = task.due_date < date.today() and task.status not in [
-                TaskStatus.COMPLETED,
-                TaskStatus.ARCHIVED,
+        # Filter overdue if requested
+        if overdue_only:
+            today = date.today()
+            tasks = [
+                t
+                for t in tasks
+                if t.due_date
+                and t.due_date < today
+                and t.status not in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]
             ]
-            due_info = f" | Due: {task.due_date}" + (" ⚠️ OVERDUE" if is_overdue else "")
 
-        lines.append(
-            f"{status_emoji} {priority_emoji} **#{task.id}** {task.title}{due_info}"
-        )
+        if not tasks:
+            return "📭 No tasks found matching the criteria"
 
-    return "\n".join(lines)
+        # Format output
+        lines = [f"📋 **Found {len(tasks)} task(s)**\n"]
+
+        for task in tasks:
+            status_emoji = {
+                TaskStatus.PENDING: "⭕",
+                TaskStatus.IN_PROGRESS: "🔄",
+                TaskStatus.COMPLETED: "✅",
+                TaskStatus.ARCHIVED: "📦",
+            }.get(task.status, "❓")
+
+            priority_emoji = {
+                Priority.HIGH: "🔴",
+                Priority.MEDIUM: "🟡",
+                Priority.LOW: "🟢",
+            }.get(task.priority, "⚪")
+
+            due_info = ""
+            if task.due_date:
+                is_overdue = task.due_date < date.today() and task.status not in [
+                    TaskStatus.COMPLETED,
+                    TaskStatus.ARCHIVED,
+                ]
+                due_info = f" | Due: {task.due_date}" + (" ⚠️ OVERDUE" if is_overdue else "")
+
+            lines.append(
+                f"{status_emoji} {priority_emoji} **#{task.id}** {task.title}{due_info}"
+            )
+
+        return "\n".join(lines)
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
 
 
 @mcp.tool()
@@ -376,13 +381,14 @@ def get_task(task_id: int) -> str:
     Args:
         task_id: The ID of the task to retrieve
     """
-    service = get_service()
-    task = service.get_task(task_id)
-
-    if not task:
-        return f"❌ Task #{task_id} not found"
-
-    return format_task_markdown(task)
+    try:
+        service = get_service()
+        task = service.get_task(task_id)
+        return format_task_markdown(task)
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
 
 
 @mcp.tool()
@@ -409,41 +415,41 @@ def update_task(
         due_date: New due date in YYYY-MM-DD format
         tags: New tags
     """
-    service = get_service()
+    try:
+        service = get_service()
 
-    # Check task exists
-    existing_task = service.get_task(task_id)
-    if not existing_task:
-        return f"❌ Task #{task_id} not found"
+        # Build update dict
+        updates = {}
+        if title is not None:
+            updates["title"] = title
+        if description is not None:
+            updates["description"] = description
+        if priority is not None:
+            updates["priority"] = Priority(priority)
+        if status is not None:
+            updates["status"] = TaskStatus(status)
+        if tags is not None:
+            updates["tags"] = tags
 
-    # Build update dict
-    updates = {}
-    if title is not None:
-        updates["title"] = title
-    if description is not None:
-        updates["description"] = description
-    if priority is not None:
-        updates["priority"] = Priority(priority)
-    if status is not None:
-        updates["status"] = TaskStatus(status)
-    if tags is not None:
-        updates["tags"] = tags
+        # Parse due_date if provided
+        if due_date is not None:
+            try:
+                updates["due_date"] = datetime.strptime(due_date, "%Y-%m-%d").date()
+            except ValueError:
+                return f"❌ Invalid date format: {due_date}. Use YYYY-MM-DD"
 
-    # Parse due_date if provided
-    if due_date is not None:
-        try:
-            updates["due_date"] = datetime.strptime(due_date, "%Y-%m-%d").date()
-        except ValueError:
-            return f"❌ Invalid date format: {due_date}. Use YYYY-MM-DD"
+        if not updates:
+            return "ℹ️ No updates provided - task unchanged"
 
-    if not updates:
-        return "ℹ️ No updates provided - task unchanged"
+        # Update the task
+        task = service.update_task(task_id, **updates)
 
-    # Update the task
-    task = service.update_task(task_id, **updates)
-
-    changed_fields = ", ".join(updates.keys())
-    return f"✅ **Updated task #{task_id}:** {changed_fields}\n\n{format_task_markdown(task)}"
+        changed_fields = ", ".join(updates.keys())
+        return f"✅ **Updated task #{task_id}:** {changed_fields}\n\n{format_task_markdown(task)}"
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
 
 
 @mcp.tool()
@@ -453,14 +459,14 @@ def complete_task(task_id: int) -> str:
     Args:
         task_id: The ID of the task to complete
     """
-    service = get_service()
-
-    task = service.get_task(task_id)
-    if not task:
-        return f"❌ Task #{task_id} not found"
-
-    task = service.update_task(task_id, status=TaskStatus.COMPLETED)
-    return f"✅ **Completed task #{task_id}:** {task.title}\n\n{format_task_markdown(task)}"
+    try:
+        service = get_service()
+        task = service.update_task(task_id, status=TaskStatus.COMPLETED)
+        return f"✅ **Completed task #{task_id}:** {task.title}\n\n{format_task_markdown(task)}"
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
 
 
 @mcp.tool()
@@ -473,15 +479,16 @@ def delete_task(task_id: int) -> str:
     Args:
         task_id: The ID of the task to delete
     """
-    service = get_service()
-
-    task = service.get_task(task_id)
-    if not task:
-        return f"❌ Task #{task_id} not found"
-
-    title = task.title
-    service.delete_task(task_id)
-    return f"✅ Deleted task #{task_id}: {title}"
+    try:
+        service = get_service()
+        task = service.get_task(task_id)
+        title = task.title
+        service.delete_task(task_id)
+        return f"✅ Deleted task #{task_id}: {title}"
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
 
 
 # ============================================================================

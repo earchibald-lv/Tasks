@@ -271,13 +271,14 @@ class TestTaskServiceUpdate:
         with pytest.raises(ValueError, match="Task title cannot be empty"):
             service.update_task(task.id, title="")
 
-    def test_update_task_past_due_date_raises_error(self, service):
-        """Test that past due date raises ValueError."""
+    def test_update_task_past_due_date_allowed(self, service):
+        """Test that past due dates are now allowed on update (e.g., for tracking overdue tasks)."""
         task = service.create_task(title="Test")
         past_date = date.today() - timedelta(days=1)
-
-        with pytest.raises(ValueError, match="Due date cannot be in the past"):
-            service.update_task(task.id, due_date=past_date)
+        
+        # Should not raise - past dates allowed for updates
+        updated_task = service.update_task(task.id, due_date=past_date)
+        assert updated_task.due_date == past_date
 
     def test_update_task_cannot_reopen_completed(self, service):
         """Test that completed tasks cannot be reopened directly to pending."""
