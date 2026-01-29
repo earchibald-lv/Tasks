@@ -503,6 +503,8 @@ In the first iteration, we will focus on the core functionality of the app: crea
 - ✅ Query tools (get_overdue, get_statistics)
 - ✅ Resource: stats://overview
 - ✅ Response formatting (Markdown)
+- ✅ Console script entry point (tasks-mcp command)
+- ✅ pipx installation support
 - ✅ VS Code MCP configuration example (embedded in quickstart)
 - ✅ VS Code one-click installation button
 - ✅ User quickstart guide (MCP-QUICKSTART.md)
