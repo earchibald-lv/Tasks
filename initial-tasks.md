@@ -4,7 +4,9 @@
  This document outlines the initial list of user tasks and to-dos to use as a dataset for testing the use of the application. The to-dos are not yet formatted to any specification, it is just a list of notes. These will be refined and formatted as we develop the application.
 
  ## Initial Tasks
- - Javier Imbus on Slack, https://livevox.slack.com/archives/D7AJJCHU5/p1769715548454999 11:39 jan 29th
+ - Jason asks for DNS logging: I think we talked about DNS logging but I don't think I asked you to work on it? https://jira.livevox.com/browse/SRE-5337
+ - Javier needs lv-na4 subnets updated for ECS. Javier Imbus on Slack, https://livevox.slack.com/archives/D7AJJCHU5/p1769715548454999 2026-01-30 netops,sre,task,subnets,na4
+ - 
 ```
 Hey Eugene, I see ASG components using the new /22 subnets in lv-na4, not yet ECS, you mentioned that depends on redeployments, we executed this more than a week ago:https://jira.livevox.com/browse/NETOPS-11162https://jira.livevox.com/browse/NETOPS-11165Should we start seeing ECS to use the new subnets?
 ```
