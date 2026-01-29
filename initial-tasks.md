@@ -5,6 +5,8 @@
 
  ## Initial Tasks
  - javier: update cloudfront distributions to TLS 1.2! SRE-5224. Originally from December, then I lost track of who asked me!
+ - s3-bucket-creator: add b-region-only support. Jason Luster mentioned this in our 1:1 today (2026-01-29) (even if that just means swapping what a and be region means?)
+
  - Jason asks for DNS logging: I think we talked about DNS logging but I don't think I asked you to work on it? https://jira.livevox.com/browse/SRE-5337
  - Javier needs lv-na4 subnets updated for ECS. Javier Imbus on Slack, https://livevox.slack.com/archives/D7AJJCHU5/p1769715548454999 2026-01-30 netops,sre,task,subnets,na4
  - 
@@ -26,7 +28,6 @@ Hey Eugene, I see ASG components using the new /22 subnets in lv-na4, not yet EC
 - UPDATE UK2 CDN process and ticket, and refer to IaaS/tools/aws-cdn-lv-add-cors command.
 - carving out exceptions to deployment checker by component (dbaworker)supporting config fargate for lv_subnet_type_tagfigure out making 
   - New thing: Can we carve out exceptions to the deployment checker? and how can we track the exceptions?-- this came up from....dbaworker? Yes, dbaworker - chatted with Chandra (?) and jason about it and they are not allowed to do deployments, but perhaps they could
-- s3-bucket-creator support b-region-only (even if that just means swapping what a and be region means?)
 - NEW - jason 1:1resource expungement from tst2-a, lv-techopscheck the cost explorer as our measure!s3 buckets - coord w/jaime"resources"gitlab-ci 1.2 to all envs!!
 - CDN - it looks like my process omitted creating the DNS A and AAAA records for it. Used AWS Console to provision it MUST GO BACK TO PROCESS AND UPDATE SRE-5265
 - Fix: We are ending up with version-routing because of our automatic detection of gitlab-ci branch from the Project's CI YAML configuration. This is incorrect! It was a neat idea but because I put the version-routing shim in it breaks. It wasn't detected before because version-routing was sending everything not-tst2 to gitlab-ci 1.1. When we added UK2 to use 1.2 the changes required were put into 1.2 ... but not version-routing which was actually the branch being consumed. Currently all changes are in both 1.2 and version-routing

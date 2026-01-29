@@ -33,6 +33,7 @@ class TaskService:
         priority: Priority = Priority.MEDIUM,
         due_date: date | None = None,
         status: TaskStatus = TaskStatus.PENDING,
+        jira_issues: str | None = None,
     ) -> Task:
         """Create a new task with validation.
 
@@ -42,6 +43,7 @@ class TaskService:
             priority: Task priority level (default: MEDIUM).
             due_date: Optional due date.
             status: Initial task status (default: PENDING).
+            jira_issues: Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678").
 
         Returns:
             Task: The created task with assigned ID.
@@ -61,6 +63,10 @@ class TaskService:
         if description is not None:
             description = description.strip() or None
 
+        # Clean JIRA issues
+        if jira_issues is not None:
+            jira_issues = jira_issues.strip() or None
+
         # Create task
         task = Task(
             title=title,
@@ -68,6 +74,7 @@ class TaskService:
             priority=priority,
             due_date=due_date,
             status=status,
+            jira_issues=jira_issues,
         )
 
         return self.repository.create(task)
@@ -146,6 +153,7 @@ class TaskService:
         priority: Priority | None = None,
         due_date: date | None = None,
         status: TaskStatus | None = None,
+        jira_issues: str | None = None,
     ) -> Task:
         """Update an existing task.
 
@@ -156,6 +164,7 @@ class TaskService:
             priority: New priority level (optional).
             due_date: New due date (optional).
             status: New status (optional).
+            jira_issues: New JIRA issues (optional, empty string clears it).
 
         Returns:
             Task: The updated task.
@@ -191,6 +200,9 @@ class TaskService:
                     "Cannot reopen completed task. Use in_progress status first."
                 )
             task.status = status
+
+        if jira_issues is not None:
+            task.jira_issues = jira_issues.strip() or None
 
         return self.repository.update(task)
 
@@ -275,3 +287,33 @@ class TaskService:
             "high_priority": self.repository.count_tasks(priority=Priority.HIGH),
             "urgent_priority": self.repository.count_tasks(priority=Priority.URGENT),
         }
+
+    @staticmethod
+    def format_jira_links(jira_issues: str | None, jira_url: str | None) -> list[str]:
+        """Format JIRA issue keys into full URLs.
+
+        Args:
+            jira_issues: Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678").
+            jira_url: Base JIRA URL (e.g., "https://jira.company.com").
+
+        Returns:
+            List of tuples (issue_key, full_url) for each JIRA issue.
+            Returns empty list if jira_issues is None/empty or jira_url is not configured.
+
+        Examples:
+            >>> TaskService.format_jira_links("SRE-1234,DEVOPS-5678", "https://jira.company.com")
+            [("SRE-1234", "https://jira.company.com/browse/SRE-1234"),
+             ("DEVOPS-5678", "https://jira.company.com/browse/DEVOPS-5678")]
+        """
+        if not jira_issues or not jira_url:
+            return []
+
+        jira_url = jira_url.rstrip("/")
+        links = []
+
+        for issue_key in jira_issues.split(","):
+            issue_key = issue_key.strip()
+            if issue_key:
+                links.append((issue_key, f"{jira_url}/browse/{issue_key}"))
+
+        return links

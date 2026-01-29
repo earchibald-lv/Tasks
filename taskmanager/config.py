@@ -64,6 +64,12 @@ class McpConfig(BaseModel):
     transport: str = Field(default="stdio", description="MCP transport protocol")
 
 
+class JiraConfig(BaseModel):
+    """JIRA integration configuration."""
+
+    jira_url: str | None = Field(default=None, description="Base JIRA URL (e.g., https://jira.company.com)")
+
+
 class Settings(BaseSettings):
     """Application settings with TOML configuration support.
 
@@ -95,6 +101,7 @@ class Settings(BaseSettings):
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
+    jira: JiraConfig = Field(default_factory=JiraConfig)
 
     # Legacy single database URL (for backward compatibility)
     database_url: str | None = Field(default=None, description="Direct database URL override")
@@ -291,6 +298,9 @@ def create_default_config(path: Path) -> None:
             "server_name": "tasks_mcp",
             "transport": "stdio",
         },
+        "jira": {
+            "jira_url": None,  # Set to your JIRA URL, e.g., "https://jira.company.com"
+        },
     }
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -321,7 +331,7 @@ def get_settings() -> Settings:
             flat_config.update(toml_config["general"])
         
         # Pass nested sections as-is
-        for key in ["database", "defaults", "logging", "mcp"]:
+        for key in ["database", "defaults", "logging", "mcp", "jira"]:
             if key in toml_config:
                 flat_config[key] = toml_config[key]
 

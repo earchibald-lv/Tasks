@@ -41,6 +41,21 @@ def format_task_markdown(task: Task) -> str:
     if task.description:
         lines.extend(["", f"**Description:** {task.description}"])
 
+    if task.jira_issues:
+        from taskmanager.config import get_settings
+        from taskmanager.service import TaskService
+        
+        settings = get_settings()
+        jira_links = TaskService.format_jira_links(task.jira_issues, settings.jira.jira_url)
+        
+        if jira_links:
+            lines.append("")
+            lines.append("**JIRA Issues:**")
+            for issue_key, url in jira_links:
+                lines.append(f"- [{issue_key}]({url})")
+        else:
+            lines.append(f"**JIRA Issues:** {task.jira_issues}")
+
     if task.due_date:
         is_overdue = task.due_date < date.today() and task.status not in [
             TaskStatus.COMPLETED,
@@ -72,6 +87,7 @@ class TaskCreationForm(BaseModel):
         default="medium", description="Task priority"
     )
     due_date: str = Field(default="", description="Due date in YYYY-MM-DD format (optional)")
+    jira_issues: str = Field(default="", description="JIRA issue keys, comma-separated (e.g., SRE-1234,DEVOPS-5678) (optional)")
 
 
 class TaskUpdateForm(BaseModel):
@@ -86,6 +102,7 @@ class TaskUpdateForm(BaseModel):
         default="", description="New status: todo, in_progress, done (leave empty to keep current)"
     )
     due_date: str = Field(default="", description="New due date YYYY-MM-DD (leave empty to keep current)")
+    jira_issues: str = Field(default="", description="New JIRA issues (comma-separated) (leave empty to keep current)")
 
 
 class TaskDeletionConfirmation(BaseModel):
@@ -134,6 +151,7 @@ async def create_task_interactive(ctx: Context) -> str:
             description=task_data.description if task_data.description.strip() else None,
             priority=Priority(task_data.priority),
             due_date=parsed_due_date,
+            jira_issues=task_data.jira_issues if task_data.jira_issues.strip() else None,
         )
 
         return f"✅ **Created task #{task.id}:** {task.title}\n\n{format_task_markdown(task)}"
@@ -192,6 +210,8 @@ async def update_task_interactive(ctx: Context, task_id: int) -> str:
                 update_dict["due_date"] = datetime.strptime(updates.due_date.strip(), "%Y-%m-%d").date()
             except ValueError:
                 return f"❌ Invalid date format: {updates.due_date}. Use YYYY-MM-DD"
+        if updates.jira_issues and updates.jira_issues.strip():
+            update_dict["jira_issues"] = updates.jira_issues.strip()
 
         if not update_dict:
             return "ℹ️ No changes made - all fields were empty"
@@ -257,6 +277,7 @@ def create_task(
     status: Literal["todo", "in_progress", "done"] = "todo",
     due_date: str | None = None,
     tags: list[str] | None = None,
+    jira_issues: str | None = None,
 ) -> str:
     """Create a new task (non-interactive version).
 
@@ -270,6 +291,7 @@ def create_task(
         status: Initial status (todo, in_progress, done)
         due_date: Due date in YYYY-MM-DD format
         tags: List of tags for organization
+        jira_issues: Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678")
     """
     service = get_service()
 
@@ -289,6 +311,7 @@ def create_task(
         status=TaskStatus(status),
         due_date=parsed_due_date,
         tags=tags,
+        jira_issues=jira_issues,
     )
 
     return f"✅ **Created task #{task.id}:** {task.title}\n\n{format_task_markdown(task)}"
@@ -400,6 +423,7 @@ def update_task(
     status: Literal["todo", "in_progress", "done"] | None = None,
     due_date: str | None = None,
     tags: list[str] | None = None,
+    jira_issues: str | None = None,
 ) -> str:
     """Update a task's fields (non-interactive version).
 
@@ -414,6 +438,7 @@ def update_task(
         status: New status
         due_date: New due date in YYYY-MM-DD format
         tags: New tags
+        jira_issues: New JIRA issues (comma-separated)
     """
     try:
         service = get_service()
@@ -430,6 +455,8 @@ def update_task(
             updates["status"] = TaskStatus(status)
         if tags is not None:
             updates["tags"] = tags
+        if jira_issues is not None:
+            updates["jira_issues"] = jira_issues
 
         # Parse due_date if provided
         if due_date is not None:

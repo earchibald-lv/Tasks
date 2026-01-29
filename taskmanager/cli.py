@@ -11,6 +11,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from taskmanager.config import get_settings
 from taskmanager.database import get_session, init_db
 from taskmanager.models import Priority, TaskStatus
 from taskmanager.repository_impl import SQLTaskRepository
@@ -42,6 +43,7 @@ def add_task(
     priority: Priority | None = typer.Option(None, "--priority", "-p", help="Task priority"),
     due: str | None = typer.Option(None, "--due", help="Due date (YYYY-MM-DD)"),
     status: TaskStatus | None = typer.Option(None, "--status", "-s", help="Initial status"),
+    jira: str | None = typer.Option(None, "--jira", "-j", help="JIRA issue keys (comma-separated)"),
 ) -> None:
     """Create a new task."""
     try:
@@ -63,6 +65,7 @@ def add_task(
             priority=priority if priority is not None else Priority.MEDIUM,
             due_date=due_date,
             status=status if status is not None else TaskStatus.PENDING,
+            jira_issues=jira,
         )
 
         console.print(f"[green]✓[/green] Created task #{task.id}: {task.title}", style="bold")
@@ -76,6 +79,8 @@ def add_task(
             console.print(f"  Due: {due_date}")
         if status:
             console.print(f"  Status: {status.value}")
+        if jira:
+            console.print(f"  JIRA: {jira}")
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {str(e)}", style="bold")
@@ -191,6 +196,7 @@ def show_task(
     """Show detailed information about a specific task."""
     try:
         service = get_service()
+        settings = get_settings()
         task = service.get_task(task_id)
 
         # Create a panel with task details
@@ -219,6 +225,17 @@ def show_task(
         }
         priority_style = priority_colors.get(task.priority, "white")
         console.print(f"[bold]Priority:[/bold] [{priority_style}]{task.priority.value}[/{priority_style}]")
+
+        # JIRA issues with clickable links
+        if task.jira_issues:
+            jira_links = service.format_jira_links(task.jira_issues, settings.jira.jira_url)
+            if jira_links:
+                console.print(f"[bold]JIRA Issues:[/bold]")
+                for issue_key, url in jira_links:
+                    console.print(f"  • [link={url}]{issue_key}[/link] ({url})")
+            else:
+                # No JIRA URL configured, just show the keys
+                console.print(f"[bold]JIRA Issues:[/bold] {task.jira_issues}")
 
         # Dates
         if task.due_date:
@@ -250,8 +267,10 @@ def update_task(
     priority: Priority | None = typer.Option(None, "--priority", "-p", help="New priority"),
     status: TaskStatus | None = typer.Option(None, "--status", "-s", help="New status"),
     due: str | None = typer.Option(None, "--due", help="New due date (YYYY-MM-DD)"),
+    jira: str | None = typer.Option(None, "--jira", "-j", help="JIRA issue keys (comma-separated)"),
     clear_description: bool = typer.Option(False, "--clear-description", help="Clear the description"),
     clear_due: bool = typer.Option(False, "--clear-due", help="Clear the due date"),
+    clear_jira: bool = typer.Option(False, "--clear-jira", help="Clear JIRA issues"),
 ) -> None:
     """Update an existing task."""
     try:
@@ -271,6 +290,8 @@ def update_task(
             description = ""
         if clear_due:
             due_date = None
+        if clear_jira:
+            jira = ""
 
         # Update task
         task = service.update_task(
@@ -280,6 +301,7 @@ def update_task(
             priority=priority,
             status=status,
             due_date=due_date,
+            jira_issues=jira,
         )
 
         console.print(f"[green]✓[/green] Updated task #{task.id}: {task.title}", style="bold")

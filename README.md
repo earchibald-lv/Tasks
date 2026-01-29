@@ -85,6 +85,7 @@ Options:
   --priority [low|medium|high|urgent]
   --due YYYY-MM-DD               Due date
   --status [pending|in_progress|completed|archived]
+  --jira TEXT                    JIRA issue keys (comma-separated)
 ```
 
 **Examples:**
@@ -92,6 +93,7 @@ Options:
 tasks add "Implement login feature"
 tasks add "Bug fix" --priority urgent --due 2026-01-30
 tasks add "Write docs" --description "API documentation" --priority high
+tasks add "Fix auth" --jira "SRE-1234,DEVOPS-5678" --priority urgent
 ```
 
 #### `tasks list` - List tasks
@@ -135,6 +137,10 @@ Options:
   --priority [low|medium|high|urgent]
   --status [pending|in_progress|completed|archived]
   --due YYYY-MM-DD
+  --jira TEXT                    JIRA issue keys (comma-separated)
+  --clear-description            Clear the description
+  --clear-due                    Clear the due date
+  --clear-jira                   Clear JIRA issues
 ```
 
 **Examples:**
@@ -142,6 +148,8 @@ Options:
 tasks update 1 --status in_progress
 tasks update 1 --priority urgent --due 2026-01-30
 tasks update 1 --title "New title" --description "New description"
+tasks update 1 --jira "SRE-1234,DEVOPS-5678"
+tasks update 1 --clear-jira
 ```
 
 #### `tasks complete` - Mark task as complete
@@ -415,6 +423,137 @@ The MCP server uses the same configuration system as the CLI:
 ```
 
 Set `TASKMANAGER_PROFILE=test` to point the MCP server at a test database.
+
+## JIRA Integration
+
+Link tasks to JIRA issues for seamless project tracking.
+
+### Configuration
+
+Set your JIRA base URL in `~/.config/taskmanager/config.toml`:
+
+```toml
+[jira]
+jira_url = "https://jira.yourcompany.com"
+```
+
+### Usage
+
+**Create task with JIRA issues:**
+```bash
+tasks add "Fix authentication bug" --jira "SRE-1234,DEVOPS-5678"
+```
+
+**Update task's JIRA issues:**
+```bash
+tasks update 1 --jira "SRE-1234,BACKEND-999"
+```
+
+**Clear JIRA issues:**
+```bash
+tasks update 1 --clear-jira
+```
+
+**View task with JIRA links:**
+```bash
+tasks show 1
+```
+
+Output:
+```
+Task #1
+Title: Fix authentication bug
+...
+JIRA Issues:
+  • SRE-1234 (https://jira.yourcompany.com/browse/SRE-1234)
+  • DEVOPS-5678 (https://jira.yourcompany.com/browse/DEVOPS-5678)
+```
+
+### MCP Integration
+
+The MCP server also supports JIRA issues:
+
+```python
+# Create task with JIRA issues
+create_task(
+    title="Bug fix",
+    jira_issues="SRE-1234,DEVOPS-5678"
+)
+
+# Update task's JIRA issues
+update_task(task_id=1, jira_issues="SRE-9999")
+```
+
+JIRA links are formatted as Markdown in responses:
+```markdown
+**JIRA Issues:**
+- [SRE-1234](https://jira.yourcompany.com/browse/SRE-1234)
+- [DEVOPS-5678](https://jira.yourcompany.com/browse/DEVOPS-5678)
+```
+
+## Database Migrations
+
+The task manager uses **Alembic** for database schema migrations, preserving your data when adding new features.
+
+### Running Migrations
+
+**Upgrade to latest schema:**
+```bash
+# Default profile
+alembic upgrade head
+
+# Specific profile
+TASKS_PROFILE=dev alembic upgrade head
+TASKS_PROFILE=test alembic upgrade head
+```
+
+**Check current version:**
+```bash
+alembic current
+TASKS_PROFILE=dev alembic current
+```
+
+**View migration history:**
+```bash
+alembic history
+```
+
+### Creating Migrations
+
+When adding new features that modify the database:
+
+```bash
+# Create a new migration
+alembic revision -m "add_new_feature"
+
+# Auto-generate from model changes (experimental)
+alembic revision --autogenerate -m "add_new_feature"
+```
+
+Then edit the generated file in `migrations/versions/` to implement the upgrade/downgrade logic.
+
+### Migration Files
+
+Migrations are stored in:
+```
+migrations/
+├── versions/
+│   └── e17cb2e34d2f_add_jira_issues_column.py
+├── env.py       # Migration environment configuration
+└── script.py.mako
+```
+
+### Profile-Aware Migrations
+
+The migration system respects your configuration profiles:
+
+- `alembic upgrade head` → default profile database
+- `TASKS_PROFILE=dev alembic upgrade head` → dev profile database
+- `tasks --profile test ...` → CLI uses test profile
+
+### First Run
+
+The first time you run a task command, the database is automatically created with the latest schema. No manual migration needed for new databases.
 
 ## Architecture
 

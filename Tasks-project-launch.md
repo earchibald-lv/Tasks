@@ -44,6 +44,7 @@ The app is CLI-first but designed with a pluggable architecture to allow for fut
 - **CLI Command Name**: `tasks` (short, clear, memorable)
 - **MCP Server Name**: `tasks_mcp`
 - **MCP Transport**: stdio (local, single-user)
+- **JIRA Integration**: `jira_url` configuration for issue link generation (e.g., `https://jira.company.com`)
 - **Auto-Initialization**: Config file auto-created on first run with defaults
 
 ## Architecture
@@ -146,6 +147,9 @@ class Task(SQLModel, table=True):
     # Metadata
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: Optional[datetime] = None
+    
+    # External tracking
+    jira_issues: Optional[str] = None  # Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678")
     
     # Future: project_id, tags (many-to-many), parent_task_id
 ```

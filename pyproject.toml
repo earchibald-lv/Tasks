@@ -30,6 +30,7 @@ dependencies = [
     "fastmcp>=3.0.0b1",
     "mcp>=1.23.0",
     "tomli-w>=1.0.0",
+    "alembic>=1.13.0",
 ]
 
 [project.optional-dependencies]
