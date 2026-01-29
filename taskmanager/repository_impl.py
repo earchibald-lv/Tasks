@@ -119,7 +119,9 @@ class SQLTaskRepository:
         Returns:
             int: Number of tasks matching the criteria.
         """
-        statement = select(Task)
+        from sqlalchemy import func
+        
+        statement = select(func.count()).select_from(Task)
 
         # Apply filters
         if status is not None:
@@ -133,8 +135,8 @@ class SQLTaskRepository:
                 Task.due_date.isnot(None), Task.due_date <= due_before  # type: ignore
             )
 
-        results = self.session.exec(statement)
-        return len(list(results.all()))
+        result = self.session.exec(statement)
+        return result.one()
 
     def update(self, task: Task) -> Task:
         """Update an existing task.
