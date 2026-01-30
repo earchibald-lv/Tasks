@@ -1,3 +1,0 @@
-Updated description from another file.
-
-This demonstrates that the @FILENAME feature works for updates too!
