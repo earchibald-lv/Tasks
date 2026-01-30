@@ -152,6 +152,23 @@ tasks update 1 --jira "SRE-1234,DEVOPS-5678"
 tasks update 1 --clear-jira
 ```
 
+**Loading Values from Files:**
+
+Similar to AWS CLI, you can load field values from files using the `@FILENAME` syntax. This is particularly useful for long descriptions:
+
+```bash
+# Load description from a file
+tasks add "Complex task" --description @/path/to/description.txt
+
+# Update description from a file
+tasks update 1 --description @./notes.md
+
+# Works with relative paths, absolute paths, and tilde expansion
+tasks add "Task" --description @~/Documents/task-details.txt
+```
+
+When a field value starts with `@`, the CLI will attempt to read the content from the specified file. If the file doesn't exist, an error will be displayed. The file's entire content will be used as the field value, preserving formatting and newlines.
+
 #### `tasks complete` - Mark task as complete
 
 ```bash

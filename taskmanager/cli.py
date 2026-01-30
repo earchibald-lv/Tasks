@@ -36,6 +36,44 @@ def get_service() -> TaskService:
     return TaskService(repository)
 
 
+def load_from_file_if_needed(value: str | None) -> str | None:
+    """Load content from a file if the value starts with @.
+    
+    This mimics AWS CLI behavior where @filename loads the file content.
+    
+    Args:
+        value: The value to process, potentially starting with @
+        
+    Returns:
+        The file content if value starts with @, otherwise the original value
+        
+    Raises:
+        typer.Exit: If file cannot be read
+    """
+    if value is None:
+        return None
+        
+    if not value.startswith("@"):
+        return value
+        
+    # Remove @ prefix and get file path
+    file_path = Path(value[1:])
+    
+    try:
+        # Read file content
+        content = file_path.read_text(encoding="utf-8").strip()
+        return content
+    except FileNotFoundError:
+        console.print(f"[red]Error:[/red] File not found: {file_path}", style="bold")
+        raise typer.Exit(1)
+    except PermissionError:
+        console.print(f"[red]Error:[/red] Permission denied reading: {file_path}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] Failed to read {file_path}: {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
 @app.command("add")
 def add_task(
     title: str = typer.Argument(..., help="Task title (required)"),
@@ -48,6 +86,9 @@ def add_task(
     """Create a new task."""
     try:
         service = get_service()
+        
+        # Load description from file if needed
+        description = load_from_file_if_needed(description)
 
         # Parse due date if provided
         due_date: date | None = None
@@ -275,6 +316,10 @@ def update_task(
     """Update an existing task."""
     try:
         service = get_service()
+        
+        # Load description from file if needed (unless clearing)
+        if not clear_description:
+            description = load_from_file_if_needed(description)
 
         # Parse due date if provided
         due_date = None
