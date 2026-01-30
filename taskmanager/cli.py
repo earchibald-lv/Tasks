@@ -4,6 +4,7 @@ This module provides the command-line interface that wraps the service layer,
 providing user-friendly commands for task management.
 """
 
+import os
 from datetime import date, datetime
 from pathlib import Path
 
@@ -27,6 +28,9 @@ app = typer.Typer(
 # Rich console for beautiful output
 console = Console()
 
+# Global automation flag - can be set via environment variable
+_automation_mode = os.getenv("TASKS_AUTOMATION", "").lower() in ("1", "true", "yes")
+
 
 def get_service() -> TaskService:
     """Create and return a TaskService instance with dependencies."""
@@ -34,6 +38,26 @@ def get_service() -> TaskService:
     session = get_session()
     repository = SQLTaskRepository(session)
     return TaskService(repository)
+
+
+def confirm_action(message: str, force: bool = False, yes_flag: bool = False) -> bool:
+    """Confirm an action with the user.
+    
+    Respects automation mode and force/yes flags for non-interactive use.
+    
+    Args:
+        message: The confirmation message to display
+        force: Force flag from command (skip confirmation)
+        yes_flag: Global yes flag from command (auto-confirm)
+        
+    Returns:
+        True if action confirmed, False otherwise
+    """
+    # Auto-confirm in automation mode or if force/yes flags are set
+    if _automation_mode or force or yes_flag:
+        return True
+    
+    return typer.confirm(message)
 
 
 def load_from_file_if_needed(value: str | None) -> str | None:
@@ -413,12 +437,10 @@ def delete_task(
         # Get task for confirmation
         task = service.get_task(task_id)
 
-        # Confirm deletion unless --force is used
-        if not force:
-            confirm = typer.confirm(f"Delete task #{task_id}: '{task.title}'?")
-            if not confirm:
-                console.print("[yellow]Deletion cancelled.[/yellow]")
-                raise typer.Exit(0)
+        # Confirm deletion
+        if not confirm_action(f"Delete task #{task_id}: '{task.title}'?", force=force):
+            console.print("[yellow]Deletion cancelled.[/yellow]")
+            raise typer.Exit(0)
 
         service.delete_task(task_id)
         console.print(f"[red]✓ Deleted task #{task_id}[/red]", style="bold")
@@ -715,12 +737,10 @@ def attach_remove(
     try:
         service = get_service()
         
-        # Confirm removal unless --force
-        if not force:
-            confirm = typer.confirm(f"Remove attachment '{filename}' from task #{task_id}?")
-            if not confirm:
-                console.print("[yellow]Removal cancelled.[/yellow]")
-                raise typer.Exit(0)
+        # Confirm removal
+        if not confirm_action(f"Remove attachment '{filename}' from task #{task_id}?", force=force):
+            console.print("[yellow]Removal cancelled.[/yellow]")
+            raise typer.Exit(0)
         
         removed = service.remove_attachment(task_id, filename)
         
