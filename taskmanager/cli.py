@@ -426,7 +426,44 @@ def update_task(
             tags=tags,
         )
 
+        # Display what was updated
         console.print(f"[green]✓[/green] Updated task #{task.id}: {task.title}", style="bold")
+        
+        # Show updated fields
+        updates = []
+        if title is not None:
+            updates.append(f"Title: {title}")
+        if description is not None:
+            if clear_description:
+                updates.append("Description: [dim](cleared)[/dim]")
+            else:
+                # Show first 50 chars of description
+                desc_preview = description[:50] + "..." if len(description) > 50 else description
+                updates.append(f"Description: {desc_preview}")
+        if priority is not None:
+            updates.append(f"Priority: {priority.value}")
+        if status is not None:
+            updates.append(f"Status: {status.value}")
+        if due_date is not None or clear_due:
+            if clear_due:
+                updates.append("Due date: [dim](cleared)[/dim]")
+            else:
+                updates.append(f"Due date: {due_date}")
+        if jira is not None:
+            if clear_jira:
+                updates.append("JIRA issues: [dim](cleared)[/dim]")
+            else:
+                updates.append(f"JIRA issues: {jira}")
+        if tags is not None:
+            if clear_tags:
+                updates.append("Tags: [dim](cleared)[/dim]")
+            else:
+                updates.append(f"Tags: {tags}")
+        
+        if updates:
+            console.print("\n[bold]Updated fields:[/bold]")
+            for update in updates:
+                console.print(f"  • {update}")
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {str(e)}", style="bold")
