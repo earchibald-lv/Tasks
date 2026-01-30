@@ -168,11 +168,16 @@ def list_tasks(
     offset: int = typer.Option(0, "--offset", help="Number of tasks to skip"),
     format: str = typer.Option("table", "--format", "-f", help="Output format (table, simple, json)"),
     all: bool = typer.Option(False, "--all", "-a", help="Show all tasks including completed, cancelled, and archived"),
+    show_tags: bool = typer.Option(False, "--show-tags", help="Show tags column in table"),
+    show_jira: bool = typer.Option(False, "--show-jira", help="Show JIRA issues column in table"),
+    show_created: bool = typer.Option(False, "--show-created", help="Show created date column in table"),
+    show_updated: bool = typer.Option(False, "--show-updated", help="Show updated date column in table"),
 ) -> None:
     """List tasks with optional filtering.
     
     By default, only shows open tasks (pending and in_progress).
     Use --all to include completed, cancelled, and archived tasks.
+    Use --show-* flags to add additional columns to the table view.
     """
     try:
         service = get_service()
@@ -243,6 +248,16 @@ def list_tasks(
             table.add_column("Status", style="yellow")
             table.add_column("Priority", style="magenta")
             table.add_column("Due Date", style="red")
+            
+            # Add optional columns based on flags
+            if show_tags:
+                table.add_column("Tags", style="green")
+            if show_jira:
+                table.add_column("JIRA", style="blue")
+            if show_created:
+                table.add_column("Created", style="dim")
+            if show_updated:
+                table.add_column("Updated", style="dim")
 
             for task in tasks:
                 # Status with icons
@@ -273,13 +288,30 @@ def list_tasks(
                     else:
                         due_display = str(task.due_date)
 
-                table.add_row(
+                # Build row data starting with core columns
+                row_data = [
                     str(task.id),
                     task.title,
                     status_display,
                     f"[{priority_style}]{task.priority.value}[/{priority_style}]",
                     due_display,
-                )
+                ]
+                
+                # Add optional column data
+                if show_tags:
+                    tags_display = task.tags if task.tags else ""
+                    row_data.append(tags_display)
+                if show_jira:
+                    jira_display = task.jira_issues if task.jira_issues else ""
+                    row_data.append(jira_display)
+                if show_created:
+                    created_display = task.created_at.strftime("%Y-%m-%d") if task.created_at else ""
+                    row_data.append(created_display)
+                if show_updated:
+                    updated_display = task.updated_at.strftime("%Y-%m-%d") if task.updated_at else ""
+                    row_data.append(updated_display)
+                
+                table.add_row(*row_data)
 
             console.print(table)
 
