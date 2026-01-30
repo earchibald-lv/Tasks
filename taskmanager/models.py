@@ -42,6 +42,7 @@ class Task(SQLModel, table=True):
         created_at: Timestamp when task was created (auto-generated).
         updated_at: Timestamp when task was last updated (auto-updated).
         jira_issues: Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678").
+        tags: Comma-separated tags for categorization (e.g., "backend,api,bug-fix").
     """
 
     # Identity
@@ -64,6 +65,7 @@ class Task(SQLModel, table=True):
 
     # External tracking
     jira_issues: str | None = Field(default=None, description="Comma-separated JIRA issue keys")
+    tags: str | None = Field(default=None, description="Comma-separated tags for categorization", index=True)
 
     def mark_updated(self) -> None:
         """Update the updated_at timestamp to current time."""

@@ -47,6 +47,7 @@ class TaskRepository(Protocol):
         status: TaskStatus | None = None,
         priority: Priority | None = None,
         due_before: date | None = None,
+        tag: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[Task]:
@@ -56,6 +57,7 @@ class TaskRepository(Protocol):
             status: Filter by task status (optional).
             priority: Filter by priority level (optional).
             due_before: Filter tasks due before this date (optional).
+            tag: Filter by tag (partial match, optional).
             limit: Maximum number of tasks to return (default: 20).
             offset: Number of tasks to skip for pagination (default: 0).
 
@@ -69,6 +71,7 @@ class TaskRepository(Protocol):
         status: TaskStatus | None = None,
         priority: Priority | None = None,
         due_before: date | None = None,
+        tag: str | None = None,
     ) -> int:
         """Count tasks matching the given criteria.
 
@@ -76,6 +79,7 @@ class TaskRepository(Protocol):
             status: Filter by task status (optional).
             priority: Filter by priority level (optional).
             due_before: Filter tasks due before this date (optional).
+            tag: Filter by tag (partial match, optional).
 
         Returns:
             int: Number of tasks matching the criteria.

@@ -34,6 +34,7 @@ class TaskService:
         due_date: date | None = None,
         status: TaskStatus = TaskStatus.PENDING,
         jira_issues: str | None = None,
+        tags: str | None = None,
     ) -> Task:
         """Create a new task with validation.
 
@@ -44,6 +45,7 @@ class TaskService:
             due_date: Optional due date.
             status: Initial task status (default: PENDING).
             jira_issues: Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678").
+            tags: Comma-separated tags for categorization (e.g., "backend,api,bug-fix").
 
         Returns:
             Task: The created task with assigned ID.
@@ -67,6 +69,10 @@ class TaskService:
         if jira_issues is not None:
             jira_issues = jira_issues.strip() or None
 
+        # Clean tags
+        if tags is not None:
+            tags = tags.strip() or None
+
         # Create task
         task = Task(
             title=title,
@@ -75,6 +81,7 @@ class TaskService:
             due_date=due_date,
             status=status,
             jira_issues=jira_issues,
+            tags=tags,
         )
 
         return self.repository.create(task)
@@ -105,6 +112,7 @@ class TaskService:
         status: TaskStatus | None = None,
         priority: Priority | None = None,
         due_before: date | None = None,
+        tag: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[list[Task], int]:
@@ -114,6 +122,7 @@ class TaskService:
             status: Filter by task status (optional).
             priority: Filter by priority level (optional).
             due_before: Filter tasks due before this date (optional).
+            tag: Filter by tag (exact match, optional).
             limit: Maximum number of tasks to return (default: 20).
             offset: Number of tasks to skip for pagination (default: 0).
 
@@ -133,6 +142,7 @@ class TaskService:
             status=status,
             priority=priority,
             due_before=due_before,
+            tag=tag,
             limit=limit,
             offset=offset,
         )
@@ -141,6 +151,7 @@ class TaskService:
             status=status,
             priority=priority,
             due_before=due_before,
+            tag=tag,
         )
 
         return tasks, total
@@ -154,6 +165,7 @@ class TaskService:
         due_date: date | None = None,
         status: TaskStatus | None = None,
         jira_issues: str | None = None,
+        tags: str | None = None,
     ) -> Task:
         """Update an existing task.
 
@@ -165,6 +177,7 @@ class TaskService:
             due_date: New due date (optional).
             status: New status (optional).
             jira_issues: New JIRA issues (optional, empty string clears it).
+            tags: New tags (optional, empty string clears it).
 
         Returns:
             Task: The updated task.
@@ -203,6 +216,9 @@ class TaskService:
 
         if jira_issues is not None:
             task.jira_issues = jira_issues.strip() or None
+
+        if tags is not None:
+            task.tags = tags.strip() or None
 
         return self.repository.update(task)
 

@@ -56,6 +56,9 @@ def format_task_markdown(task: Task) -> str:
         else:
             lines.append(f"**JIRA Issues:** {task.jira_issues}")
 
+    if task.tags:
+        lines.append(f"**Tags:** {task.tags}")
+
     if task.due_date:
         is_overdue = task.due_date < date.today() and task.status not in [
             TaskStatus.COMPLETED,
@@ -89,6 +92,7 @@ class TaskCreationForm(BaseModel):
     )
     due_date: str = Field(default="", description="Due date in YYYY-MM-DD format (optional)")
     jira_issues: str = Field(default="", description="JIRA issue keys, comma-separated (e.g., SRE-1234,DEVOPS-5678) (optional)")
+    tags: str = Field(default="", description="Tags for categorization, comma-separated (e.g., backend,api,bug-fix) (optional)")
 
 
 class TaskUpdateForm(BaseModel):
@@ -104,6 +108,7 @@ class TaskUpdateForm(BaseModel):
     )
     due_date: str = Field(default="", description="New due date YYYY-MM-DD (leave empty to keep current)")
     jira_issues: str = Field(default="", description="New JIRA issues (comma-separated) (leave empty to keep current)")
+    tags: str = Field(default="", description="New tags (comma-separated) (leave empty to keep current)")
 
 
 class TaskDeletionConfirmation(BaseModel):
@@ -153,6 +158,7 @@ async def create_task_interactive(ctx: Context) -> str:
             priority=Priority(task_data.priority),
             due_date=parsed_due_date,
             jira_issues=task_data.jira_issues if task_data.jira_issues.strip() else None,
+            tags=task_data.tags if task_data.tags.strip() else None,
         )
 
         return f"✅ **Created task #{task.id}:** {task.title}\n\n{format_task_markdown(task)}"
@@ -213,6 +219,8 @@ async def update_task_interactive(ctx: Context, task_id: int) -> str:
                 return f"❌ Invalid date format: {updates.due_date}. Use YYYY-MM-DD"
         if updates.jira_issues and updates.jira_issues.strip():
             update_dict["jira_issues"] = updates.jira_issues.strip()
+        if updates.tags and updates.tags.strip():
+            update_dict["tags"] = updates.tags.strip()
 
         if not update_dict:
             return "ℹ️ No changes made - all fields were empty"
@@ -304,6 +312,11 @@ def create_task(
         except ValueError:
             return f"❌ Invalid date format: {due_date}. Use YYYY-MM-DD"
 
+    # Convert tags list to comma-separated string
+    tags_str = None
+    if tags:
+        tags_str = ",".join(tags)
+
     # Create the task
     task = service.create_task(
         title=title,
@@ -311,7 +324,7 @@ def create_task(
         priority=Priority(priority),
         status=TaskStatus(status),
         due_date=parsed_due_date,
-        tags=tags,
+        tags=tags_str,
         jira_issues=jira_issues,
     )
 
@@ -457,7 +470,7 @@ def update_task(
         if status is not None:
             updates["status"] = TaskStatus(status)
         if tags is not None:
-            updates["tags"] = tags
+            updates["tags"] = ",".join(tags) if tags else ""
         if jira_issues is not None:
             updates["jira_issues"] = jira_issues
 

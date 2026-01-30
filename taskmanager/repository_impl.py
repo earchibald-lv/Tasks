@@ -65,6 +65,7 @@ class SQLTaskRepository:
         status: TaskStatus | None = None,
         priority: Priority | None = None,
         due_before: date | None = None,
+        tag: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[Task]:
@@ -74,6 +75,7 @@ class SQLTaskRepository:
             status: Filter by task status (optional).
             priority: Filter by priority level (optional).
             due_before: Filter tasks due before this date (optional).
+            tag: Filter by tag (partial match, optional).
             limit: Maximum number of tasks to return (default: 20).
             offset: Number of tasks to skip for pagination (default: 0).
 
@@ -94,6 +96,10 @@ class SQLTaskRepository:
                 Task.due_date.isnot(None), Task.due_date <= due_before  # type: ignore
             )
 
+        if tag is not None:
+            # Filter tasks that contain the tag (supports comma-separated tags)
+            statement = statement.where(Task.tags.like(f"%{tag}%"))  # type: ignore[attr-defined]
+
         # Apply ordering (most recent first)
         statement = statement.order_by(Task.created_at.desc())  # type: ignore[attr-defined]
 
@@ -108,6 +114,7 @@ class SQLTaskRepository:
         status: TaskStatus | None = None,
         priority: Priority | None = None,
         due_before: date | None = None,
+        tag: str | None = None,
     ) -> int:
         """Count tasks matching the given criteria.
 
@@ -115,6 +122,7 @@ class SQLTaskRepository:
             status: Filter by task status (optional).
             priority: Filter by priority level (optional).
             due_before: Filter tasks due before this date (optional).
+            tag: Filter by tag (partial match, optional).
 
         Returns:
             int: Number of tasks matching the criteria.
@@ -134,6 +142,9 @@ class SQLTaskRepository:
             statement = statement.where(
                 Task.due_date.isnot(None), Task.due_date <= due_before  # type: ignore
             )
+
+        if tag is not None:
+            statement = statement.where(Task.tags.like(f"%{tag}%"))  # type: ignore[attr-defined]
 
         result = self.session.exec(statement)
         return result.one()

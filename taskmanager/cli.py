@@ -82,6 +82,7 @@ def add_task(
     due: str | None = typer.Option(None, "--due", help="Due date (YYYY-MM-DD)"),
     status: TaskStatus | None = typer.Option(None, "--status", "-s", help="Initial status"),
     jira: str | None = typer.Option(None, "--jira", "-j", help="JIRA issue keys (comma-separated)"),
+    tags: str | None = typer.Option(None, "--tags", "-t", help="Tags (comma-separated)"),
 ) -> None:
     """Create a new task."""
     try:
@@ -107,6 +108,7 @@ def add_task(
             due_date=due_date,
             status=status if status is not None else TaskStatus.PENDING,
             jira_issues=jira,
+            tags=tags,
         )
 
         console.print(f"[green]✓[/green] Created task #{task.id}: {task.title}", style="bold")
@@ -122,6 +124,8 @@ def add_task(
             console.print(f"  Status: {status.value}")
         if jira:
             console.print(f"  JIRA: {jira}")
+        if tags:
+            console.print(f"  Tags: {tags}")
 
     except ValueError as e:
         console.print(f"[red]Error:[/red] {str(e)}", style="bold")
@@ -135,6 +139,7 @@ def add_task(
 def list_tasks(
     status: TaskStatus | None = typer.Option(None, "--status", "-s", help="Filter by status"),
     priority: Priority | None = typer.Option(None, "--priority", "-p", help="Filter by priority"),
+    tag: str | None = typer.Option(None, "--tag", help="Filter by tag (partial match)"),
     limit: int = typer.Option(20, "--limit", "-l", help="Maximum number of tasks to show"),
     offset: int = typer.Option(0, "--offset", help="Number of tasks to skip"),
     format: str = typer.Option("table", "--format", "-f", help="Output format (table, simple, json)"),
@@ -147,6 +152,7 @@ def list_tasks(
         tasks, total = service.list_tasks(
             status=status,
             priority=priority,
+            tag=tag,
             limit=limit,
             offset=offset,
         )
@@ -280,6 +286,11 @@ def show_task(
                 # No JIRA URL configured, just show the keys
                 console.print(f"[bold]JIRA Issues:[/bold] {task.jira_issues}")
 
+        # Tags
+        if task.tags:
+            tag_list = [f"[cyan]{tag.strip()}[/cyan]" for tag in task.tags.split(",")]
+            console.print(f"[bold]Tags:[/bold] {', '.join(tag_list)}")
+
         # Dates
         if task.due_date:
             is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
@@ -311,9 +322,11 @@ def update_task(
     status: TaskStatus | None = typer.Option(None, "--status", "-s", help="New status"),
     due: str | None = typer.Option(None, "--due", help="New due date (YYYY-MM-DD)"),
     jira: str | None = typer.Option(None, "--jira", "-j", help="JIRA issue keys (comma-separated)"),
+    tags: str | None = typer.Option(None, "--tags", help="Tags (comma-separated)"),
     clear_description: bool = typer.Option(False, "--clear-description", help="Clear the description"),
     clear_due: bool = typer.Option(False, "--clear-due", help="Clear the due date"),
     clear_jira: bool = typer.Option(False, "--clear-jira", help="Clear JIRA issues"),
+    clear_tags: bool = typer.Option(False, "--clear-tags", help="Clear tags"),
 ) -> None:
     """Update an existing task."""
     try:
@@ -339,6 +352,8 @@ def update_task(
             due_date = None
         if clear_jira:
             jira = ""
+        if clear_tags:
+            tags = ""
 
         # Update task
         task = service.update_task(
@@ -349,6 +364,7 @@ def update_task(
             status=status,
             due_date=due_date,
             jira_issues=jira,
+            tags=tags,
         )
 
         console.print(f"[green]✓[/green] Updated task #{task.id}: {task.title}", style="bold")
