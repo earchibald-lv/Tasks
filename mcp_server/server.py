@@ -578,6 +578,293 @@ def get_stats() -> str:
 
 
 # ============================================================================
+# Prompts
+# ============================================================================
+
+
+@mcp.prompt(
+    name="newTask",
+    description="Guide user through creating a new task with natural language",
+)
+def new_task_prompt(task_type: str = "feature") -> str:
+    """Interactive prompt template for creating a new task.
+
+    Args:
+        task_type: Type of task to create (feature, bug, docs, chore, test)
+    """
+    type_templates = {
+        "feature": {
+            "title": "feat: Add new capability",
+            "example": "User authentication, API endpoint, UI component",
+        },
+        "bug": {
+            "title": "fix: Resolve issue with X",
+            "example": "Login fails on mobile, API returns 500 error",
+        },
+        "docs": {
+            "title": "docs: Update documentation for X",
+            "example": "API reference, README, user guide",
+        },
+        "chore": {
+            "title": "chore: Improve X",
+            "example": "Refactor code, update dependencies, cleanup",
+        },
+        "test": {
+            "title": "test: Add tests for X",
+            "example": "Unit tests, integration tests, E2E tests",
+        },
+    }
+
+    template_info = type_templates.get(
+        task_type, type_templates["feature"]
+    )
+
+    return f"""I'll help you create a new {task_type} task. Let's gather the details:
+
+**1. Task Title** (brief and actionable)
+   Example: {template_info['title']}
+   Common patterns: {template_info['example']}
+
+**2. Description** (what needs to be done)
+   - What's the goal?
+   - What are the acceptance criteria?
+   - Any technical notes or constraints?
+
+**3. Priority** 
+   - `low`: Nice to have, no urgency
+   - `medium`: Should be done soon (default)
+   - `high`: Important, needs attention
+   - `urgent`: Critical, immediate action
+
+**4. JIRA Issues** (optional)
+   - Link to related JIRA tickets (e.g., SRE-1234, DEVOPS-5678)
+   - Use comma-separated format
+
+**5. Due Date** (optional)
+   - Format: YYYY-MM-DD
+   - When should this be completed?
+
+**6. Tags** (optional)
+   - Categorize the task (e.g., backend, frontend, infrastructure)
+
+Please provide these details and I'll create the task for you!"""
+
+
+@mcp.prompt(
+    name="updateTask",
+    description="Guide user through updating an existing task",
+)
+def update_task_prompt(task_id: int) -> str:
+    """Interactive prompt for updating a task.
+
+    Args:
+        task_id: ID of the task to update
+    """
+    return f"""I'll help you update task #{task_id}. What would you like to change?
+
+**Available Updates:**
+
+1. **Title** - Make it more clear or actionable
+2. **Description** - Add details, clarify requirements, update progress
+3. **Status** - Change workflow state:
+   - `todo` → Task is pending
+   - `in_progress` → Currently working on it
+   - `done` → Completed
+
+4. **Priority** - Adjust urgency:
+   - `low`, `medium`, `high`, `urgent`
+
+5. **JIRA Issues** - Link or unlink JIRA tickets:
+   - Add: Comma-separated list (SRE-1234, DEVOPS-5678)
+   - Remove: Use --clear-jira flag
+
+6. **Due Date** - Set or change deadline (YYYY-MM-DD format)
+
+7. **Tags** - Update categorization
+
+First, let me show you the current task details. Then tell me what you'd like to update!"""
+
+
+@mcp.prompt(
+    name="reviewTasks",
+    description="Prompt for reviewing and prioritizing tasks",
+)
+def review_tasks_prompt(
+    focus: str = "all",
+) -> str:
+    """Generate a prompt for reviewing tasks.
+
+    Args:
+        focus: What to focus on (all, overdue, high-priority, in-progress)
+    """
+    focus_guidance = {
+        "all": "Let's review all your tasks and organize them by priority and status.",
+        "overdue": "Let's review your overdue tasks and create a plan to get back on track.",
+        "high-priority": "Let's review your high-priority tasks and ensure they're on track.",
+        "in-progress": "Let's review what you're currently working on and check progress.",
+    }
+
+    guidance = focus_guidance.get(focus, focus_guidance["all"])
+
+    return f"""📋 **Task Review Session**
+
+{guidance}
+
+**Review Process:**
+
+1. **Current State** - Show me your {focus} tasks
+2. **Assessment** - For each task, let's check:
+   - Is the priority still correct?
+   - Is the status accurate?
+   - Are there blockers?
+   - Should we adjust due dates?
+
+3. **Actions** - What needs to happen:
+   - Tasks to complete
+   - Tasks to reprioritize
+   - Tasks to break down
+   - Tasks to delegate or archive
+
+4. **Plan** - Create actionable next steps
+
+Let's start by listing your {focus} tasks!"""
+
+
+@mcp.prompt(
+    name="planWork",
+    description="Help plan and break down work into manageable tasks",
+)
+def plan_work_prompt(
+    project: str = "current work",
+) -> str:
+    """Generate a prompt for work planning.
+
+    Args:
+        project: Name or description of the project to plan
+    """
+    return f"""🎯 **Work Planning for: {project}**
+
+Let's break down this work into manageable, trackable tasks.
+
+**Planning Steps:**
+
+1. **Objective** - What's the end goal?
+   - What problem are we solving?
+   - What's the definition of done?
+
+2. **Scope** - What's included and excluded?
+   - Core features vs. nice-to-haves
+   - Dependencies and constraints
+
+3. **Break Down** - Divide into tasks:
+   - Each task should be completable in 1-3 days
+   - Tasks should have clear acceptance criteria
+   - Consider dependencies between tasks
+
+4. **Prioritize** - Order the tasks:
+   - What must be done first? (dependencies)
+   - What's most valuable? (impact)
+   - What's most urgent? (deadlines)
+
+5. **Estimate** - Set due dates:
+   - Be realistic with time estimates
+   - Account for meetings and interruptions
+   - Add buffer for unknowns
+
+Tell me about {project} and I'll help you create the task breakdown!"""
+
+
+@mcp.prompt(
+    name="dailyStandup",
+    description="Generate a daily standup report from your tasks",
+)
+def daily_standup_prompt() -> str:
+    """Generate a prompt for daily standup format."""
+    return """📅 **Daily Standup Report**
+
+Let me help you prepare your standup update based on your tasks.
+
+**Standup Format:**
+
+**Yesterday:**
+- What tasks did I complete? (completed tasks from last 1-2 days)
+- What progress did I make? (updates on in-progress tasks)
+
+**Today:**
+- What am I working on? (current in-progress tasks)
+- What do I plan to complete? (top priorities for today)
+
+**Blockers:**
+- Am I blocked on anything? (tasks with no progress, waiting on others)
+- Do I need help? (high-priority tasks at risk)
+
+**This Week:**
+- What are my key deliverables? (tasks due this week)
+- Am I on track? (overall progress assessment)
+
+Let's generate your standup by looking at your recent task activity!"""
+
+
+@mcp.prompt(
+    name="taskReport",
+    description="Generate a comprehensive task status report",
+)
+def task_report_prompt(
+    period: str = "week",
+) -> str:
+    """Generate a prompt for task reporting.
+
+    Args:
+        period: Reporting period (day, week, sprint, month)
+    """
+    period_context = {
+        "day": ("today", "yesterday", "daily"),
+        "week": ("this week", "last week", "weekly"),
+        "sprint": ("this sprint", "last sprint", "sprint"),
+        "month": ("this month", "last month", "monthly"),
+    }
+
+    current, previous, adj = period_context.get(
+        period, period_context["week"]
+    )
+
+    return f"""📊 **{adj.title()} Task Report**
+
+Let me generate a comprehensive report of your task activity.
+
+**Report Sections:**
+
+1. **Completed** ({current})
+   - Tasks finished {current}
+   - What was delivered?
+
+2. **In Progress** (current)
+   - Tasks actively being worked on
+   - Expected completion dates
+
+3. **Blocked/At Risk**
+   - Tasks not making progress
+   - Tasks past due date
+   - What's preventing completion?
+
+4. **Planned** (upcoming)
+   - High-priority tasks starting soon
+   - Tasks due {current}
+
+5. **Metrics**
+   - Completion rate: X tasks completed
+   - On-time delivery: X% met deadlines
+   - Task distribution: by priority, by status
+
+6. **Insights**
+   - What went well?
+   - What needs attention?
+   - Recommended actions
+
+Let's generate your {adj} report!"""
+
+
+# ============================================================================
 # Main Entry Point
 # ============================================================================
 

@@ -262,6 +262,60 @@ Access task statistics:
   - Priority breakdown (high, medium, low)
   - Overdue count
 
+### MCP Prompts
+
+Prompts are templates that appear as slash commands in AI clients (VS Code, Claude Desktop) to guide natural language interactions:
+
+#### Available Prompts
+
+- **`/newTask`** - Guide through creating a new task
+  - Arguments: `task_type` (feature, bug, docs, chore, test)
+  - Provides tailored templates and examples
+  - Walks through title, description, priority, JIRA links, due date
+  
+- **`/updateTask`** - Guide through updating an existing task
+  - Arguments: `task_id` (required)
+  - Lists all updatable fields with examples
+  - Shows current task details first
+  
+- **`/reviewTasks`** - Prompt for reviewing and prioritizing tasks
+  - Arguments: `focus` (all, overdue, high-priority, in-progress)
+  - Structured review process with actionable steps
+  - Helps assess status, blockers, and next actions
+  
+- **`/planWork`** - Help break down work into manageable tasks
+  - Arguments: `project` (name/description of work to plan)
+  - Guides through objective, scope, breakdown, prioritization
+  - Creates task list with dependencies and estimates
+  
+- **`/dailyStandup`** - Generate daily standup report
+  - No arguments required
+  - Formats: Yesterday, Today, Blockers, This Week
+  - Based on task activity and status
+  
+- **`/taskReport`** - Generate comprehensive status report
+  - Arguments: `period` (day, week, sprint, month)
+  - Includes: completed, in-progress, blocked, planned, metrics
+  - Professional reporting format
+
+#### Using Prompts
+
+In VS Code with Claude or other MCP-enabled AI clients:
+
+```
+You: /newTask bug
+Claude: I'll help you create a new bug task. Let's gather the details:
+        
+        **1. Task Title** (brief and actionable)
+           Example: fix: Resolve issue with X
+           ...
+
+You: I need to fix the login redirect on mobile Safari
+Claude: [Creates task using the create_task tool with your input]
+```
+
+Prompts make it easier to use the task manager naturally - just type the slash command and follow the guided conversation!
+
 ## Configuration
 
 The task manager uses a flexible configuration system with TOML files, environment variables, and CLI flags.

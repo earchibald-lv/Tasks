@@ -4,9 +4,6 @@
  This document outlines the initial list of user tasks and to-dos to use as a dataset for testing the use of the application. The to-dos are not yet formatted to any specification, it is just a list of notes. These will be refined and formatted as we develop the application.
 
  ## Initial Tasks
- - javier: update cloudfront distributions to TLS 1.2! SRE-5224. Originally from December, then I lost track of who asked me!
- - s3-bucket-creator: add b-region-only support. Jason Luster mentioned this in our 1:1 today (2026-01-29) (even if that just means swapping what a and be region means?)
-
  - Jason asks for DNS logging: I think we talked about DNS logging but I don't think I asked you to work on it? https://jira.livevox.com/browse/SRE-5337
  - Javier needs lv-na4 subnets updated for ECS. Javier Imbus on Slack, https://livevox.slack.com/archives/D7AJJCHU5/p1769715548454999 2026-01-30 netops,sre,task,subnets,na4
  - 
@@ -54,4 +51,6 @@ Hey Eugene, I see ASG components using the new /22 subnets in lv-na4, not yet EC
 - ECS/component_fargate_terraform: 2.0, supporting major.minor versioning, is currently oly being used for TST2 26.1 deployments. Next step is to make sure it is global and includes UK2 and any STG4 region changes we make to it.
 - cloudtrail + S3 -- take my demo and productize it into TF -> IaaSSRE-5220 Research and implement CRUD tracking for S3 terraform state bucketsAndres' S3 code. Where can I go with it? What are its limitations? How do we handle transitioning smoothly with A/B regions including both resources AND state?Cleaning out remainining resources: TST2-A lv-techops NA3, NA5LV MCPs! SRE-5224 Update Cloudfront distributions to support TLS 1.2UK2 environment build! Kickoff meeting on Wednesday morningTERRAFORM STATE BUCKET and TRACKING (SRE-5220)BYOK (bring your own key)AMI: it's my time to try where instead of sharing AMIs we actually COPY them from env to env to remove building-block problem
 - terraform everywhere: migrate to using use_locking=true in backend configs instead of dynamic locking via separate dynamodb table management. This is now supported in recent terraform versions and simplifies our backend configs significantly.
-- 
+
+## Imported Tasks (to default DB)
+-  - javier: update cloudfront distributions to TLS 1.2! SRE-5224. Originally from December, then I lost track of who asked me!
