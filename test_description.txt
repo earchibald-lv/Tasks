@@ -1,0 +1,8 @@
+This is a test description loaded from a file.
+
+It can contain multiple lines and detailed information about the task.
+
+Features:
+- Multi-line support
+- Markdown formatting
+- Easy to edit in a proper text editor

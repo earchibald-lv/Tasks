@@ -73,6 +73,18 @@ tasks complete 1
 tasks delete 1
 ```
 
+### Task Status Workflow
+
+Tasks can have the following statuses:
+
+- **pending** (○) - Task not yet started
+- **in_progress** (◐) - Currently working on the task
+- **completed** (✓) - Task finished successfully
+- **cancelled** (✕) - Task abandoned or no longer needed
+- **archived** (✖) - Task is old/inactive
+
+**Note:** Cancelled and completed tasks are not considered overdue, even if they have past due dates.
+
 ### Commands Reference
 
 #### `tasks add` - Create a new task
@@ -84,7 +96,7 @@ Options:
   --description TEXT              Task description
   --priority [low|medium|high|urgent]
   --due YYYY-MM-DD               Due date
-  --status [pending|in_progress|completed|archived]
+  --status [pending|in_progress|completed|cancelled|archived]
   --jira TEXT                    JIRA issue keys (comma-separated)
 ```
 
@@ -102,7 +114,7 @@ tasks add "Fix auth" --jira "SRE-1234,DEVOPS-5678" --priority urgent
 tasks list [options]
 
 Options:
-  --status [pending|in_progress|completed|archived]
+  --status [pending|in_progress|completed|cancelled|archived]
   --priority [low|medium|high|urgent]
   --limit INTEGER                Max results (default: 20)
   --offset INTEGER               Pagination offset
@@ -135,7 +147,7 @@ Options:
   --title TEXT
   --description TEXT
   --priority [low|medium|high|urgent]
-  --status [pending|in_progress|completed|archived]
+  --status [pending|in_progress|completed|cancelled|archived]
   --due YYYY-MM-DD
   --jira TEXT                    JIRA issue keys (comma-separated)
   --clear-description            Clear the description

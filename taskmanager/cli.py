@@ -190,6 +190,7 @@ def list_tasks(
                     TaskStatus.PENDING: "○",
                     TaskStatus.IN_PROGRESS: "◐",
                     TaskStatus.COMPLETED: "✓",
+                    TaskStatus.CANCELLED: "✕",
                     TaskStatus.ARCHIVED: "✖",
                 }
                 status_display = f"{status_icons.get(task.status, '?')} {task.status.value}"
@@ -206,7 +207,7 @@ def list_tasks(
                 # Due date with overdue indicator
                 due_display = ""
                 if task.due_date:
-                    is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]
+                    is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
                     if is_overdue:
                         due_display = f"[red bold]{task.due_date} ⚠[/red bold]"
                     else:
@@ -252,6 +253,7 @@ def show_task(
             TaskStatus.PENDING: "○",
             TaskStatus.IN_PROGRESS: "◐",
             TaskStatus.COMPLETED: "✓",
+            TaskStatus.CANCELLED: "✕",
             TaskStatus.ARCHIVED: "✖",
         }
         status_icon = status_icons.get(task.status, "?")
@@ -280,7 +282,7 @@ def show_task(
 
         # Dates
         if task.due_date:
-            is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]
+            is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
             if is_overdue:
                 console.print(f"[bold]Due:[/bold] [red bold]{task.due_date} ⚠ OVERDUE[/red bold]")
             else:

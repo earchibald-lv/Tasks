@@ -16,6 +16,7 @@ class TaskStatus(str, Enum):
     PENDING = "pending"  # Not started
     IN_PROGRESS = "in_progress"  # Currently working on
     COMPLETED = "completed"  # Finished
+    CANCELLED = "cancelled"  # Abandoned/no longer needed
     ARCHIVED = "archived"  # Old/inactive
 
 

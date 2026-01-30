@@ -59,6 +59,7 @@ def format_task_markdown(task: Task) -> str:
     if task.due_date:
         is_overdue = task.due_date < date.today() and task.status not in [
             TaskStatus.COMPLETED,
+            TaskStatus.CANCELLED,
             TaskStatus.ARCHIVED,
         ]
         due_str = f"{task.due_date} ⚠️ OVERDUE" if is_overdue else str(task.due_date)
@@ -99,7 +100,7 @@ class TaskUpdateForm(BaseModel):
         default="", description="New priority: low, medium, high (leave empty to keep current)"
     )
     status: str = Field(
-        default="", description="New status: todo, in_progress, done (leave empty to keep current)"
+        default="", description="New status: todo, in_progress, done, cancelled (leave empty to keep current)"
     )
     due_date: str = Field(default="", description="New due date YYYY-MM-DD (leave empty to keep current)")
     jira_issues: str = Field(default="", description="New JIRA issues (comma-separated) (leave empty to keep current)")
@@ -204,7 +205,7 @@ async def update_task_interactive(ctx: Context, task_id: int) -> str:
             try:
                 update_dict["status"] = TaskStatus(updates.status.strip())
             except ValueError:
-                return f"❌ Invalid status: {updates.status}. Use: todo, in_progress, done"
+                return f"❌ Invalid status: {updates.status}. Use: pending, in_progress, completed, cancelled, archived"
         if updates.due_date and updates.due_date.strip():
             try:
                 update_dict["due_date"] = datetime.strptime(updates.due_date.strip(), "%Y-%m-%d").date()
@@ -369,6 +370,7 @@ def list_tasks(
                 TaskStatus.PENDING: "⭕",
                 TaskStatus.IN_PROGRESS: "🔄",
                 TaskStatus.COMPLETED: "✅",
+                TaskStatus.CANCELLED: "❌",
                 TaskStatus.ARCHIVED: "📦",
             }.get(task.status, "❓")
 
@@ -382,6 +384,7 @@ def list_tasks(
             if task.due_date:
                 is_overdue = task.due_date < date.today() and task.status not in [
                     TaskStatus.COMPLETED,
+                    TaskStatus.CANCELLED,
                     TaskStatus.ARCHIVED,
                 ]
                 due_info = f" | Due: {task.due_date}" + (" ⚠️ OVERDUE" if is_overdue else "")
@@ -550,7 +553,7 @@ def get_stats() -> str:
         for t in all_tasks
         if t.due_date
         and t.due_date < today
-        and t.status not in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]
+        and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
     ]
 
     # Build stats output
@@ -667,9 +670,11 @@ def update_task_prompt(task_id: int) -> str:
 1. **Title** - Make it more clear or actionable
 2. **Description** - Add details, clarify requirements, update progress
 3. **Status** - Change workflow state:
-   - `todo` → Task is pending
+   - `pending` → Task is pending
    - `in_progress` → Currently working on it
-   - `done` → Completed
+   - `completed` → Finished
+   - `cancelled` → Abandoned/no longer needed
+   - `archived` → Old/inactive
 
 4. **Priority** - Adjust urgency:
    - `low`, `medium`, `high`, `urgent`
