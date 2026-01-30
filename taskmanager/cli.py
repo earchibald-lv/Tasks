@@ -291,6 +291,11 @@ def show_task(
             tag_list = [f"[cyan]{tag.strip()}[/cyan]" for tag in task.tags.split(",")]
             console.print(f"[bold]Tags:[/bold] {', '.join(tag_list)}")
 
+        # Attachments
+        attachments = service.list_attachments(task.id)
+        if attachments:
+            console.print(f"[bold]Attachments:[/bold] {len(attachments)} file(s) - use 'tasks attach list {task.id}' to view")
+
         # Dates
         if task.due_date:
             is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
@@ -622,6 +627,166 @@ def main(
         settings.set_override("database_url", database)
     # Note: --config would require modifying load_toml_config to accept custom path
 
+
+# Attachment management subcommand group
+attach_app = typer.Typer(help="Manage task attachments")
+app.add_typer(attach_app, name="attach")
+
+
+@attach_app.command("add")
+def attach_add(
+    task_id: int = typer.Argument(..., help="Task ID to attach file to"),
+    file_path: Path = typer.Argument(..., help="Path to file to attach", exists=True),
+) -> None:
+    """Attach a file to a task."""
+    try:
+        service = get_service()
+        
+        if not file_path.is_file():
+            console.print(f"[red]Error:[/red] Not a file: {file_path}", style="bold")
+            raise typer.Exit(1)
+        
+        # Add the attachment
+        metadata = service.add_attachment(task_id, file_path)
+        
+        console.print(f"[green]✓[/green] Attached file to task #{task_id}", style="bold")
+        console.print(f"  Original name: {metadata['original_name']}")
+        console.print(f"  Stored as: {metadata['filename']}")
+        console.print(f"  Size: {metadata['size']:,} bytes")
+        
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@attach_app.command("list")
+def attach_list(
+    task_id: int = typer.Argument(..., help="Task ID to list attachments for"),
+) -> None:
+    """List all attachments for a task."""
+    try:
+        service = get_service()
+        attachments = service.list_attachments(task_id)
+        
+        if not attachments:
+            console.print(f"[yellow]Task #{task_id} has no attachments.[/yellow]")
+            return
+        
+        table = Table(title=f"Attachments for Task #{task_id}")
+        table.add_column("Filename", style="cyan")
+        table.add_column("Original Name", style="white")
+        table.add_column("Size", style="green", justify="right")
+        table.add_column("Added", style="yellow")
+        
+        for attachment in attachments:
+            size_kb = attachment["size"] / 1024
+            size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
+            
+            added_dt = datetime.fromisoformat(attachment["added_at"])
+            added_str = added_dt.strftime("%Y-%m-%d %H:%M")
+            
+            table.add_row(
+                attachment["filename"],
+                attachment["original_name"],
+                size_str,
+                added_str,
+            )
+        
+        console.print(table)
+        
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@attach_app.command("remove")
+def attach_remove(
+    task_id: int = typer.Argument(..., help="Task ID"),
+    filename: str = typer.Argument(..., help="Filename of attachment to remove"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+) -> None:
+    """Remove an attachment from a task."""
+    try:
+        service = get_service()
+        
+        # Confirm removal unless --force
+        if not force:
+            confirm = typer.confirm(f"Remove attachment '{filename}' from task #{task_id}?")
+            if not confirm:
+                console.print("[yellow]Removal cancelled.[/yellow]")
+                raise typer.Exit(0)
+        
+        removed = service.remove_attachment(task_id, filename)
+        
+        if removed:
+            console.print(f"[green]✓[/green] Removed attachment '{filename}' from task #{task_id}", style="bold")
+        else:
+            console.print(f"[yellow]Attachment '{filename}' not found.[/yellow]")
+            raise typer.Exit(1)
+        
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@attach_app.command("open")
+def attach_open(
+    task_id: int = typer.Argument(..., help="Task ID"),
+    filename: str = typer.Argument(..., help="Filename of attachment to open"),
+) -> None:
+    """Open an attachment file."""
+    try:
+        import subprocess
+        import sys
+        
+        service = get_service()
+        file_path = service.get_attachment_path(task_id, filename)
+        
+        # Open the file using system default application
+        if sys.platform == "darwin":  # macOS
+            subprocess.run(["open", str(file_path)])
+        elif sys.platform == "win32":  # Windows
+            subprocess.run(["start", str(file_path)], shell=True)
+        else:  # Linux
+            subprocess.run(["xdg-open", str(file_path)])
+        
+        console.print(f"[green]Opened:[/green] {filename}")
+        
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@attach_app.command("path")
+def attach_path(
+    task_id: int = typer.Argument(..., help="Task ID"),
+    filename: str = typer.Argument(..., help="Filename of attachment"),
+) -> None:
+    """Show the full path to an attachment file."""
+    try:
+        service = get_service()
+        file_path = service.get_attachment_path(task_id, filename)
+        
+        console.print(str(file_path))
+        
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

@@ -66,6 +66,7 @@ class Task(SQLModel, table=True):
     # External tracking
     jira_issues: str | None = Field(default=None, description="Comma-separated JIRA issue keys")
     tags: str | None = Field(default=None, description="Comma-separated tags for categorization", index=True)
+    attachments: str | None = Field(default=None, description="JSON array of attachment metadata")
 
     def mark_updated(self) -> None:
         """Update the updated_at timestamp to current time."""

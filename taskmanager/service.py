@@ -6,7 +6,14 @@ logic and validation rules.
 """
 
 from datetime import date
+from pathlib import Path
 
+from taskmanager.attachments import (
+    AttachmentManager,
+    AttachmentMetadata,
+    parse_attachments,
+    serialize_attachments,
+)
 from taskmanager.models import Priority, Task, TaskStatus
 from taskmanager.repository import TaskRepository
 
@@ -25,6 +32,7 @@ class TaskService:
             repository: TaskRepository implementation for data access.
         """
         self.repository = repository
+        self.attachment_manager = AttachmentManager()
 
     def create_task(
         self,
@@ -333,3 +341,112 @@ class TaskService:
                 links.append((issue_key, f"{jira_url}/browse/{issue_key}"))
 
         return links
+
+    def add_attachment(
+        self,
+        task_id: int,
+        file_path: Path | str,
+        mime_type: str | None = None,
+    ) -> AttachmentMetadata:
+        """Add a file attachment to a task.
+
+        Args:
+            task_id: The task ID
+            file_path: Path to the file to attach
+            mime_type: Optional MIME type
+
+        Returns:
+            Metadata for the added attachment
+
+        Raises:
+            ValueError: If task not found or file invalid
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        # Add the file
+        metadata = self.attachment_manager.add_attachment(
+            task_id, Path(file_path), mime_type
+        )
+
+        # Update task's attachments metadata
+        attachments = parse_attachments(task.attachments)
+        attachments.append(metadata)
+        task.attachments = serialize_attachments(attachments)
+        task.mark_updated()
+
+        self.repository.update(task)
+
+        return metadata
+
+    def remove_attachment(self, task_id: int, filename: str) -> bool:
+        """Remove a file attachment from a task.
+
+        Args:
+            task_id: The task ID
+            filename: The filename of the attachment to remove
+
+        Returns:
+            True if removed, False if not found
+
+        Raises:
+            ValueError: If task not found
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        # Remove from filesystem
+        removed = self.attachment_manager.remove_attachment(task_id, filename)
+
+        if removed:
+            # Update task's attachments metadata
+            attachments = parse_attachments(task.attachments)
+            attachments = [a for a in attachments if a["filename"] != filename]
+            task.attachments = serialize_attachments(attachments)
+            task.mark_updated()
+
+            self.repository.update(task)
+
+        return removed
+
+    def list_attachments(self, task_id: int) -> list[AttachmentMetadata]:
+        """List all attachments for a task.
+
+        Args:
+            task_id: The task ID
+
+        Returns:
+            List of attachment metadata
+
+        Raises:
+            ValueError: If task not found
+        """
+        task = self.get_task(task_id)
+        return parse_attachments(task.attachments)
+
+    def get_attachment_path(self, task_id: int, filename: str) -> Path:
+        """Get the full path to an attachment file.
+
+        Args:
+            task_id: The task ID
+            filename: The filename
+
+        Returns:
+            Full path to the attachment
+
+        Raises:
+            ValueError: If task not found or attachment not found
+        """
+        task = self.get_task(task_id)
+        attachments = parse_attachments(task.attachments)
+
+        # Verify attachment exists in metadata
+        if not any(a["filename"] == filename for a in attachments):
+            raise ValueError(f"Attachment '{filename}' not found for task #{task_id}")
+
+        path = self.attachment_manager.get_attachment_path(task_id, filename)
+
+        if not path.exists():
+            raise ValueError(f"Attachment file not found: {path}")
+
+        return path
