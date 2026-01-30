@@ -167,19 +167,49 @@ def list_tasks(
     limit: int = typer.Option(20, "--limit", "-l", help="Maximum number of tasks to show"),
     offset: int = typer.Option(0, "--offset", help="Number of tasks to skip"),
     format: str = typer.Option("table", "--format", "-f", help="Output format (table, simple, json)"),
+    all: bool = typer.Option(False, "--all", "-a", help="Show all tasks including completed, cancelled, and archived"),
 ) -> None:
-    """List tasks with optional filtering."""
+    """List tasks with optional filtering.
+    
+    By default, only shows open tasks (pending and in_progress).
+    Use --all to include completed, cancelled, and archived tasks.
+    """
     try:
         service = get_service()
 
-        # Get tasks (service returns tuple of tasks and total count)
-        tasks, total = service.list_tasks(
-            status=status,
-            priority=priority,
-            tag=tag,
-            limit=limit,
-            offset=offset,
-        )
+        # If no status filter specified and --all not used, filter to open tasks only
+        if status is None and not all:
+            # Show only pending and in_progress tasks
+            tasks_pending, total_pending = service.list_tasks(
+                status=TaskStatus.PENDING,
+                priority=priority,
+                tag=tag,
+                limit=limit,
+                offset=offset,
+            )
+            tasks_in_progress, total_in_progress = service.list_tasks(
+                status=TaskStatus.IN_PROGRESS,
+                priority=priority,
+                tag=tag,
+                limit=limit,
+                offset=0,
+            )
+            
+            # Combine and sort by id
+            tasks = sorted(tasks_pending + tasks_in_progress, key=lambda t: t.id or 0)
+            total = total_pending + total_in_progress
+            
+            # Apply limit again after combining
+            tasks = tasks[:limit]
+        else:
+            # Get tasks (service returns tuple of tasks and total count)
+            tasks, total = service.list_tasks(
+                status=status,
+                priority=priority,
+                tag=tag,
+                limit=limit,
+                offset=offset,
+            )
 
         if not tasks:
             console.print("[yellow]No tasks found.[/yellow]")
