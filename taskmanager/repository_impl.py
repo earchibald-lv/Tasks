@@ -195,3 +195,21 @@ class SQLTaskRepository:
         self.session.delete(task)
         self.session.commit()
         return True
+
+    def get_all_used_tags(self) -> list[str]:
+        """Get all unique tags currently used across all tasks.
+
+        Returns:
+            list[str]: Sorted list of unique tags.
+        """
+        statement = select(Task.tags).where(Task.tags.is_not(None))
+        results = self.session.exec(statement).all()
+        
+        # Parse comma-separated tags and collect unique ones
+        tags_set = set()
+        for tags_str in results:
+            if tags_str:
+                tags = [tag.strip() for tag in tags_str.split(",")]
+                tags_set.update(tags)
+        
+        return sorted(tags_set)

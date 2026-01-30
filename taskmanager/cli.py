@@ -453,6 +453,26 @@ def delete_task(
         raise typer.Exit(1)
 
 
+@app.command("tags")
+def list_tags() -> None:
+    """List all unique tags currently used across all tasks."""
+    try:
+        service = get_service()
+        tags = service.get_all_used_tags()
+        
+        if not tags:
+            console.print("[yellow]No tags found.[/yellow]")
+            return
+        
+        console.print(f"[bold]Found {len(tags)} unique tags:[/bold]\n")
+        for tag in tags:
+            console.print(f"  • {tag}")
+        
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
 # Configuration management subcommand group
 config_app = typer.Typer(help="Manage configuration")
 app.add_typer(config_app, name="config")

@@ -450,3 +450,11 @@ class TaskService:
             raise ValueError(f"Attachment file not found: {path}")
 
         return path
+
+    def get_all_used_tags(self) -> list[str]:
+        """Get all unique tags currently used across all tasks.
+
+        Returns:
+            list[str]: Sorted list of unique tags.
+        """
+        return self.repository.get_all_used_tags()

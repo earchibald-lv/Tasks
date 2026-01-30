@@ -110,3 +110,11 @@ class TaskRepository(Protocol):
             bool: True if task was deleted, False if task wasn't found.
         """
         ...
+
+    def get_all_used_tags(self) -> list[str]:
+        """Get all unique tags currently used across all tasks.
+
+        Returns:
+            list[str]: Sorted list of unique tags.
+        """
+        ...
