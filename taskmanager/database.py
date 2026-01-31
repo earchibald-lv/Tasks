@@ -7,16 +7,19 @@ including table creation and engine initialization.
 from sqlalchemy import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
-from taskmanager.config import get_settings
+from taskmanager.config import create_settings_for_profile
 
 
-def get_engine() -> Engine:
+def get_engine(profile: str = "default") -> Engine:
     """Get the SQLModel engine for database operations.
+
+    Args:
+        profile: Database profile to use (default, dev, test)
 
     Returns:
         Engine: SQLModel engine configured for the application database.
     """
-    settings = get_settings()
+    settings = create_settings_for_profile(profile)
     database_url = settings.get_database_url()
 
     # Configure engine with optimizations for SQLite
@@ -28,18 +31,24 @@ def get_engine() -> Engine:
     return engine
 
 
-def init_db() -> None:
+def init_db(profile: str = "default") -> None:
     """Initialize the database by creating all tables.
+
+    Args:
+        profile: Database profile to use (default, dev, test)
 
     This function should be called once during application setup
     to ensure all required tables exist.
     """
-    engine = get_engine()
+    engine = get_engine(profile)
     SQLModel.metadata.create_all(engine)
 
 
-def get_session() -> Session:
+def get_session(profile: str = "default") -> Session:
     """Get a new database session.
+
+    Args:
+        profile: Database profile to use (default, dev, test)
 
     Returns:
         Session: A new SQLModel session for database operations.
@@ -47,5 +56,5 @@ def get_session() -> Session:
     Note:
         Caller is responsible for closing the session.
     """
-    engine = get_engine()
+    engine = get_engine(profile)
     return Session(engine)

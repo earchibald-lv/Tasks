@@ -18,13 +18,21 @@ from taskmanager.service import TaskService
 # Initialize FastMCP server
 mcp = FastMCP("Task Manager", version="0.1.0")
 
-# Initialize database on startup
-init_db()
+# Initialize all profile databases on startup
+for profile in ["default", "dev", "test"]:
+    init_db(profile)
 
 
-def get_service() -> TaskService:
-    """Create and return a TaskService instance."""
-    session = get_session()
+def get_service(profile: str = "default") -> TaskService:
+    """Create and return a TaskService instance for a specific profile.
+
+    Args:
+        profile: Database profile to use (default, dev, test)
+
+    Returns:
+        TaskService: Service instance for the specified profile
+    """
+    session = get_session(profile)
     repository = SQLTaskRepository(session)
     return TaskService(repository)
 
@@ -73,6 +81,16 @@ def format_task_markdown(task: Task) -> str:
         lines.append(f"**Created:** {task.created_at.strftime('%Y-%m-%d %H:%M')}")
     if task.updated_at:
         lines.append(f"**Updated:** {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
+
+    # Show workspace information if it exists
+    if task.workspace_path:
+        lines.extend([
+            "",
+            "---",
+            "**🗂️ Workspace Available**",
+            f"📁 Path: `{task.workspace_path}`",
+            "💡 Use `get_workspace_path({})` to get the path for file operations".format(task.id)
+        ])
 
     return "\n".join(lines)
 
@@ -126,11 +144,17 @@ class TaskDeletionConfirmation(BaseModel):
 
 
 @mcp.tool()
-async def create_task_interactive(ctx: Context) -> str:
+async def create_task_interactive(
+    ctx: Context,
+    profile: Literal["default", "dev", "test"] = "default",
+) -> str:
     """Create a new task with an interactive form.
 
     This tool presents a form to collect all task details interactively,
     making it easy to create well-structured tasks with all necessary information.
+
+    Args:
+        profile: Database profile to use (default, dev, test)
     """
     # Request structured input from user
     result = await ctx.elicit(
@@ -151,7 +175,7 @@ async def create_task_interactive(ctx: Context) -> str:
                 return f"❌ Invalid date format: {task_data.due_date}. Use YYYY-MM-DD"
 
         # Create task in database
-        service = get_service()
+        service = get_service(profile)
         task = service.create_task(
             title=task_data.title,
             description=task_data.description if task_data.description.strip() else None,
@@ -171,7 +195,11 @@ async def create_task_interactive(ctx: Context) -> str:
 
 
 @mcp.tool()
-async def update_task_interactive(ctx: Context, task_id: int) -> str:
+async def update_task_interactive(
+    ctx: Context,
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",
+) -> str:
     """Update an existing task with an interactive form showing current values.
 
     This tool fetches the current task and presents a form pre-filled with
@@ -179,8 +207,9 @@ async def update_task_interactive(ctx: Context, task_id: int) -> str:
 
     Args:
         task_id: The ID of the task to update
+        profile: Database profile to use (default, dev, test)
     """
-    service = get_service()
+    service = get_service(profile)
 
     # Fetch current task
     task = service.get_task(task_id)
@@ -239,7 +268,11 @@ async def update_task_interactive(ctx: Context, task_id: int) -> str:
 
 
 @mcp.tool()
-async def delete_task_interactive(ctx: Context, task_id: int) -> str:
+async def delete_task_interactive(
+    ctx: Context,
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",
+) -> str:
     """Delete a task with confirmation dialog.
 
     This tool shows task details and asks for confirmation before deletion
@@ -247,8 +280,9 @@ async def delete_task_interactive(ctx: Context, task_id: int) -> str:
 
     Args:
         task_id: The ID of the task to delete
+        profile: Database profile to use (default, dev, test)
     """
-    service = get_service()
+    service = get_service(profile)
 
     # Fetch task to show details
     task = service.get_task(task_id)
@@ -287,6 +321,7 @@ def create_task(
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
+    profile: Literal["default", "dev", "test"] = "default",
 ) -> str:
     """Create a new task (non-interactive version).
 
@@ -301,8 +336,9 @@ def create_task(
         due_date: Due date in YYYY-MM-DD format
         tags: List of tags for organization
         jira_issues: Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678")
+        profile: Database profile to use (default, dev, test)
     """
-    service = get_service()
+    service = get_service(profile)
 
     # Parse due_date if provided
     parsed_due_date = None
@@ -337,6 +373,7 @@ def list_tasks(
     priority: Literal["low", "medium", "high", "all"] = "all",
     tag: str | None = None,
     overdue_only: bool = False,
+    profile: Literal["default", "dev", "test"] = "default",
 ) -> str:
     """List tasks with optional filtering.
 
@@ -345,9 +382,10 @@ def list_tasks(
         priority: Filter by priority (low, medium, high, all)
         tag: Filter by tag
         overdue_only: Show only overdue tasks
+        profile: Database profile to use (default, dev, test)
     """
     try:
-        service = get_service()
+        service = get_service(profile)
 
         # Build filters
         filters = {}
@@ -414,14 +452,18 @@ def list_tasks(
 
 
 @mcp.tool()
-def get_task(task_id: int) -> str:
+def get_task(
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",
+) -> str:
     """Get detailed information about a specific task.
 
     Args:
         task_id: The ID of the task to retrieve
+        profile: Database profile to use (default, dev, test)
     """
     try:
-        service = get_service()
+        service = get_service(profile)
         task = service.get_task(task_id)
         return format_task_markdown(task)
     except ValueError as e:
@@ -440,6 +482,7 @@ def update_task(
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
+    profile: Literal["default", "dev", "test"] = "default",
 ) -> str:
     """Update a task's fields (non-interactive version).
 
@@ -455,9 +498,10 @@ def update_task(
         due_date: New due date in YYYY-MM-DD format
         tags: New tags
         jira_issues: New JIRA issues (comma-separated)
+        profile: Database profile to use (default, dev, test)
     """
     try:
-        service = get_service()
+        service = get_service(profile)
 
         # Build update dict
         updates = {}
@@ -496,14 +540,18 @@ def update_task(
 
 
 @mcp.tool()
-def complete_task(task_id: int) -> str:
+def complete_task(
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",
+) -> str:
     """Mark a task as completed.
 
     Args:
         task_id: The ID of the task to complete
+        profile: Database profile to use (default, dev, test)
     """
     try:
-        service = get_service()
+        service = get_service(profile)
         task = service.update_task(task_id, status=TaskStatus.COMPLETED)
         return f"✅ **Completed task #{task_id}:** {task.title}\n\n{format_task_markdown(task)}"
     except ValueError as e:
@@ -513,7 +561,10 @@ def complete_task(task_id: int) -> str:
 
 
 @mcp.tool()
-def delete_task(task_id: int) -> str:
+def delete_task(
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",
+) -> str:
     """Delete a task immediately without confirmation (non-interactive version).
 
     ⚠️ WARNING: This permanently deletes the task without confirmation.
@@ -521,9 +572,10 @@ def delete_task(task_id: int) -> str:
 
     Args:
         task_id: The ID of the task to delete
+        profile: Database profile to use (default, dev, test)
     """
     try:
-        service = get_service()
+        service = get_service(profile)
         task = service.get_task(task_id)
         title = task.title
         service.delete_task(task_id)
@@ -535,8 +587,655 @@ def delete_task(task_id: int) -> str:
 
 
 # ============================================================================
+# Workspace Management Tools
+# ============================================================================
+
+
+@mcp.tool()
+def create_workspace(
+    task_id: int,
+    initialize_git: bool = True,
+    profile: Literal["default", "dev", "test"] = "default",
+) -> str:
+    """Create a persistent workspace for a task.
+
+    Creates a directory structure at ~/.taskmanager/workspaces/task_{id}/ with:
+    - notes/ - Documentation and context files
+    - code/ - Code snippets and experiments
+    - logs/ - Execution logs
+    - tmp/ - Temporary files
+
+    Optionally initializes a git repository for version control.
+
+    Args:
+        task_id: The ID of the task to create workspace for
+        initialize_git: Whether to initialize git repository (default: True)
+        profile: Database profile to use (default, dev, test)
+    """
+    try:
+        service = get_service(profile)
+        metadata = service.create_workspace(
+            task_id=task_id,
+            initialize_git=initialize_git
+        )
+
+        git_status = "✓ Git initialized" if metadata["git_initialized"] else "✗ Git not initialized"
+
+        return f"""✅ **Created workspace for task #{task_id}**
+
+**Path:** `{metadata['workspace_path']}`
+**Created:** {metadata['created_at']}
+**Git:** {git_status}
+
+**Directory Structure:**
+- `notes/` - Documentation and context
+- `code/` - Code experiments
+- `logs/` - Execution logs
+- `tmp/` - Temporary files
+
+You can now use this workspace for task-specific file operations."""
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+@mcp.tool()
+def get_workspace_info(task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    """Get information about a task's workspace.
+
+    Returns workspace metadata including path, creation time, and git status.
+
+    Args:
+        task_id: The ID of the task
+    """
+    try:
+        service = get_service(profile)
+        metadata = service.get_workspace_info(task_id)
+
+        if not metadata:
+            return f"ℹ️ No workspace exists for task #{task_id}\n\nUse `create_workspace({task_id})` to create one."
+
+        git_status = "✓ Yes" if metadata["git_initialized"] else "✗ No"
+        last_accessed = metadata.get("last_accessed", "Never")
+
+        return f"""📁 **Workspace for Task #{task_id}**
+
+**Path:** `{metadata['workspace_path']}`
+**Created:** {metadata['created_at']}
+**Last Accessed:** {last_accessed}
+**Git Initialized:** {git_status}
+
+This workspace provides a sandboxed environment for task-specific operations."""
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+@mcp.tool()
+def get_workspace_path(task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    """Get the filesystem path to a task's workspace.
+
+    Returns the absolute path that can be used for file operations.
+    This is useful for passing to other tools or file system operations.
+
+    Args:
+        task_id: The ID of the task
+    """
+    try:
+        service = get_service(profile)
+        path = service.get_workspace_path(task_id)
+
+        if not path:
+            return f"❌ No workspace exists for task #{task_id}\n\nCreate one first with `create_workspace({task_id})`"
+
+        return str(path)
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+@mcp.tool()
+def ensure_workspace(task_id: int, initialize_git: bool = True,
+    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    """Ensure a workspace exists for a task, creating it if necessary.
+
+    This is a convenience tool that checks if a workspace exists and creates
+    one if it doesn't. Safe to call multiple times - won't fail if workspace
+    already exists.
+
+    Args:
+        task_id: The ID of the task
+        initialize_git: Whether to initialize git if creating new workspace
+    """
+    try:
+        service = get_service(profile)
+
+        # Check if workspace already exists
+        existing_path = service.get_workspace_path(task_id)
+        if existing_path:
+            return f"✓ Workspace already exists for task #{task_id}\n\n📁 Path: `{existing_path}`"
+
+        # Create new workspace
+        metadata = service.create_workspace(
+            task_id=task_id,
+            initialize_git=initialize_git
+        )
+
+        git_status = "✓ Git initialized" if metadata["git_initialized"] else "✗ Git not initialized"
+
+        return f"""✅ **Created workspace for task #{task_id}**
+
+📁 Path: `{metadata['workspace_path']}`
+{git_status}
+
+**Directory Structure:**
+- `notes/` - Documentation and context
+- `code/` - Code experiments
+- `logs/` - Execution logs
+- `tmp/` - Temporary files"""
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+@mcp.tool()
+def delete_workspace(task_id: int,
+    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    """Delete a task's workspace and all its contents.
+
+    ⚠️ WARNING: This permanently deletes all files in the workspace directory.
+    This action cannot be undone.
+
+    Args:
+        task_id: The ID of the task
+    """
+    try:
+        service = get_service(profile)
+
+        # Check if workspace exists
+        path = service.get_workspace_path(task_id)
+        if not path:
+            return f"ℹ️ No workspace exists for task #{task_id}"
+
+        # Delete workspace
+        deleted = service.delete_workspace(task_id)
+
+        if deleted:
+            return f"✅ Deleted workspace for task #{task_id}\n\nPath: `{path}` (removed)"
+        else:
+            return f"❌ Failed to delete workspace for task #{task_id}"
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+@mcp.tool()
+def search_workspace(
+    task_id: int,
+    query: str,
+    file_pattern: str = "*",
+    case_sensitive: bool = False,
+    max_results: int = 50,
+    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    """Search for content within a task's workspace.
+
+    Uses fast text search to find files and content matching your query.
+    Great for finding specific code, notes, or references within a workspace.
+
+    Args:
+        task_id: The ID of the task whose workspace to search
+        query: Text to search for (supports regex patterns)
+        file_pattern: File pattern to search (e.g., "*.py", "*.md", "notes/*")
+        case_sensitive: Whether to match case exactly (default: False)
+        max_results: Maximum number of results to return (default: 50)
+    """
+    import subprocess
+
+    try:
+        service = get_service(profile)
+
+        # Get workspace path
+        workspace_path = service.get_workspace_path(task_id)
+        if not workspace_path:
+            return f"❌ No workspace exists for task #{task_id}\n\nCreate one first with `ensure_workspace({task_id})`"
+
+        if not workspace_path.exists():
+            return f"❌ Workspace directory not found: {workspace_path}"
+
+        # Build ripgrep command
+        rg_args = [
+            "rg",
+            "--color", "never",
+            "--line-number",
+            "--heading",
+            "--max-count", str(max_results),
+        ]
+
+        if not case_sensitive:
+            rg_args.append("--ignore-case")
+
+        # Add glob pattern if specified
+        if file_pattern != "*":
+            rg_args.extend(["--glob", file_pattern])
+
+        # Exclude git and tmp directories
+        rg_args.extend([
+            "--glob", "!.git",
+            "--glob", "!tmp/*",
+            "--glob", "!*.pyc",
+            "--glob", "!__pycache__",
+        ])
+
+        rg_args.extend([query, str(workspace_path)])
+
+        # Execute search
+        result = subprocess.run(
+            rg_args,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        # Handle no results
+        if result.returncode == 1:
+            return f"🔍 No matches found in workspace for task #{task_id}\n\n**Query:** `{query}`\n**Pattern:** `{file_pattern}`"
+
+        # Handle errors
+        if result.returncode > 1:
+            return f"❌ Search error: {result.stderr}"
+
+        # Format results
+        output_lines = result.stdout.strip().split("\n")
+
+        if not output_lines or output_lines[0] == "":
+            return f"🔍 No matches found in workspace for task #{task_id}\n\n**Query:** `{query}`\n**Pattern:** `{file_pattern}`"
+
+        # Count matches and files
+        file_count = len([line for line in output_lines if line and not line.startswith(" ") and ":" in line])
+        match_count = len([line for line in output_lines if line.startswith(" ")])
+
+        result_text = f"""🔍 **Search Results for Task #{task_id}**
+
+**Query:** `{query}`
+**Pattern:** `{file_pattern}`
+**Found:** {match_count} match(es) in {file_count} file(s)
+
+---
+
+{result.stdout.strip()}
+
+---
+
+💡 Tip: Use `file_pattern="*.md"` to search only markdown files, or `"notes/*"` to search only in notes/"""
+
+        return result_text
+
+    except subprocess.TimeoutExpired:
+        return f"❌ Search timed out after 10 seconds"
+    except FileNotFoundError:
+        return f"❌ Search tool 'ripgrep' not found. Install with: brew install ripgrep"
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+@mcp.tool()
+def search_all_tasks(
+    query: str,
+    search_workspaces: bool = True,
+    search_task_fields: bool = True,
+    file_pattern: str = "*",
+    case_sensitive: bool = False,
+    status_filter: Literal["todo", "in_progress", "done", "all"] = "all",
+    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    """Search across all tasks and their workspaces.
+
+    Performs a comprehensive search across:
+    - Task titles, descriptions, tags, and JIRA issues
+    - Workspace content (notes, code, logs) if workspaces exist
+
+    This is useful when you don't know which task contains the information
+    you're looking for.
+
+    Args:
+        query: Text to search for
+        search_workspaces: Whether to search workspace files (default: True)
+        search_task_fields: Whether to search task metadata (default: True)
+        file_pattern: File pattern for workspace search (e.g., "*.py", "*.md")
+        case_sensitive: Whether to match case exactly (default: False)
+        status_filter: Filter by task status (todo, in_progress, done, all)
+    """
+    import subprocess
+
+    try:
+        service = get_service(profile)
+
+        # Build filters
+        filters = {}
+        if status_filter != "all":
+            filters["status"] = TaskStatus(status_filter)
+
+        # Get all tasks
+        tasks, total = service.list_tasks(**filters, limit=100)
+
+        if total == 0:
+            return "📭 No tasks found"
+
+        task_matches = []
+        workspace_matches = []
+
+        # Search task metadata
+        if search_task_fields:
+            query_lower = query.lower() if not case_sensitive else query
+
+            for task in tasks:
+                matches = []
+
+                # Check title
+                title_check = task.title.lower() if not case_sensitive else task.title
+                if query_lower in title_check:
+                    matches.append("title")
+
+                # Check description
+                if task.description:
+                    desc_check = task.description.lower() if not case_sensitive else task.description
+                    if query_lower in desc_check:
+                        matches.append("description")
+
+                # Check tags
+                if task.tags:
+                    tags_check = task.tags.lower() if not case_sensitive else task.tags
+                    if query_lower in tags_check:
+                        matches.append("tags")
+
+                # Check JIRA issues
+                if task.jira_issues:
+                    jira_check = task.jira_issues.lower() if not case_sensitive else task.jira_issues
+                    if query_lower in jira_check:
+                        matches.append("JIRA")
+
+                if matches:
+                    task_matches.append({
+                        "task": task,
+                        "fields": matches
+                    })
+
+        # Search workspaces
+        if search_workspaces:
+            for task in tasks:
+                if not task.workspace_path or not task.id:
+                    continue
+
+                workspace_path = service.get_workspace_path(task.id)
+                if not workspace_path or not workspace_path.exists():
+                    continue
+
+                try:
+                    # Build ripgrep command
+                    rg_args = [
+                        "rg",
+                        "--color", "never",
+                        "--files-with-matches",
+                        "--max-count", "5",
+                    ]
+
+                    if not case_sensitive:
+                        rg_args.append("--ignore-case")
+
+                    if file_pattern != "*":
+                        rg_args.extend(["--glob", file_pattern])
+
+                    rg_args.extend([
+                        "--glob", "!.git",
+                        "--glob", "!tmp/*",
+                        "--glob", "!*.pyc",
+                        "--glob", "!__pycache__",
+                    ])
+
+                    rg_args.extend([query, str(workspace_path)])
+
+                    result = subprocess.run(
+                        rg_args,
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+
+                    if result.returncode == 0:
+                        matched_files = result.stdout.strip().split("\n")
+                        matched_files = [f.replace(str(workspace_path) + "/", "") for f in matched_files if f]
+
+                        workspace_matches.append({
+                            "task": task,
+                            "files": matched_files
+                        })
+
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+
+        # Format results
+        if not task_matches and not workspace_matches:
+            return f"""🔍 **Search Results: No matches found**
+
+**Query:** `{query}`
+**Searched:** {total} task(s)
+**Workspaces:** {"Yes" if search_workspaces else "No"}
+**Task Fields:** {"Yes" if search_task_fields else "No"}"""
+
+        lines = [
+            f"🔍 **Search Results for:** `{query}`",
+            "",
+            f"**Searched:** {total} task(s)",
+            f"**Found:** {len(task_matches)} task metadata match(es), {len(workspace_matches)} workspace match(es)",
+            ""
+        ]
+
+        # Show task metadata matches
+        if task_matches:
+            lines.extend([
+                "## 📋 Task Metadata Matches",
+                ""
+            ])
+
+            for match in task_matches[:20]:
+                task = match["task"]
+                fields = ", ".join(match["fields"])
+
+                status_emoji = {
+                    TaskStatus.PENDING: "⭕",
+                    TaskStatus.IN_PROGRESS: "🔄",
+                    TaskStatus.COMPLETED: "✅",
+                    TaskStatus.CANCELLED: "❌",
+                    TaskStatus.ARCHIVED: "📦",
+                }.get(task.status, "❓")
+
+                lines.append(f"{status_emoji} **Task #{task.id}**: {task.title}")
+                lines.append(f"   Matched in: {fields}")
+                if task.workspace_path:
+                    lines.append(f"   📁 Has workspace")
+                lines.append("")
+
+        # Show workspace matches
+        if workspace_matches:
+            lines.extend([
+                "## 📂 Workspace Content Matches",
+                ""
+            ])
+
+            for match in workspace_matches[:20]:
+                task = match["task"]
+                files = match["files"]
+
+                status_emoji = {
+                    TaskStatus.PENDING: "⭕",
+                    TaskStatus.IN_PROGRESS: "🔄",
+                    TaskStatus.COMPLETED: "✅",
+                    TaskStatus.CANCELLED: "❌",
+                    TaskStatus.ARCHIVED: "📦",
+                }.get(task.status, "❓")
+
+                lines.append(f"{status_emoji} **Task #{task.id}**: {task.title}")
+                lines.append(f"   📄 Found in {len(files)} file(s):")
+                for f in files[:5]:
+                    lines.append(f"      - `{f}`")
+                if len(files) > 5:
+                    lines.append(f"      ... and {len(files) - 5} more")
+                lines.append("")
+
+        lines.extend([
+            "---",
+            f"💡 Use `get_task(task_id)` to view task details",
+            f"💡 Use `search_workspace(task_id, '{query}')` to see specific matches"
+        ])
+
+        return "\n".join(lines)
+
+    except FileNotFoundError:
+        return f"❌ Search tool 'ripgrep' not found. Install with: brew install ripgrep"
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+@mcp.tool()
+def list_workspace_files(
+    task_id: int,
+    subdirectory: str = "",
+    file_pattern: str = "*",
+    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    """List files in a task's workspace.
+
+    Browse the contents of a workspace directory to see what files are available.
+
+    Args:
+        task_id: The ID of the task
+        subdirectory: Subdirectory to list (e.g., "notes", "code", "logs")
+        file_pattern: Pattern to filter files (e.g., "*.py", "*.md")
+    """
+    import datetime
+
+    try:
+        service = get_service(profile)
+
+        # Get workspace path
+        workspace_path = service.get_workspace_path(task_id)
+        if not workspace_path:
+            return f"❌ No workspace exists for task #{task_id}"
+
+        # Build target path
+        target_path = workspace_path / subdirectory if subdirectory else workspace_path
+
+        if not target_path.exists():
+            return f"❌ Directory not found: {target_path}"
+
+        # Get matching files
+        if file_pattern == "*":
+            files = list(target_path.rglob("*"))
+        else:
+            files = list(target_path.rglob(file_pattern))
+
+        # Filter to only files (not directories)
+        files = [f for f in files if f.is_file()]
+
+        # Exclude git and cache files
+        files = [f for f in files if ".git" not in str(f) and "__pycache__" not in str(f)]
+
+        if not files:
+            return f"📂 No files found in workspace\n\n**Path:** `{target_path}`\n**Pattern:** `{file_pattern}`"
+
+        # Sort by modification time (most recent first)
+        files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+
+        # Format results
+        lines = [
+            f"📂 **Workspace Files for Task #{task_id}**",
+            "",
+            f"**Path:** `{target_path}`",
+            f"**Pattern:** `{file_pattern}`",
+            f"**Found:** {len(files)} file(s)",
+            "",
+            "---",
+            ""
+        ]
+
+        for f in files[:50]:  # Limit to 50 files
+            relative_path = f.relative_to(workspace_path)
+            size = f.stat().st_size
+            modified = datetime.datetime.fromtimestamp(f.stat().st_mtime)
+
+            # Format size
+            if size < 1024:
+                size_str = f"{size}B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f}KB"
+            else:
+                size_str = f"{size / (1024 * 1024):.1f}MB"
+
+            lines.append(f"📄 `{relative_path}` - {size_str} - {modified.strftime('%Y-%m-%d %H:%M')}")
+
+        if len(files) > 50:
+            lines.append(f"\n... and {len(files) - 50} more files")
+
+        return "\n".join(lines)
+
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+# ============================================================================
 # Resources
 # ============================================================================
+
+
+@mcp.resource("tasks://workspaces")
+def list_workspaces() -> str:
+    """List all tasks that have workspaces."""
+    service = get_service()
+
+    # Get all tasks with workspaces
+    all_tasks, _ = service.list_tasks(limit=100)
+    tasks_with_workspaces = [t for t in all_tasks if t.workspace_path]
+
+    if not tasks_with_workspaces:
+        return "📂 **Task Workspaces**\n\nNo workspaces created yet.\n\nCreate a workspace for a task with `create_workspace(task_id)`"
+
+    lines = [
+        "📂 **Task Workspaces**",
+        "",
+        f"Found {len(tasks_with_workspaces)} task(s) with workspaces:",
+        ""
+    ]
+
+    for task in tasks_with_workspaces:
+        status_emoji = {
+            TaskStatus.PENDING: "⭕",
+            TaskStatus.IN_PROGRESS: "🔄",
+            TaskStatus.COMPLETED: "✅",
+            TaskStatus.CANCELLED: "❌",
+            TaskStatus.ARCHIVED: "📦",
+        }.get(task.status, "❓")
+
+        lines.append(f"{status_emoji} **Task #{task.id}**: {task.title}")
+        lines.append(f"   📁 `{task.workspace_path}`")
+        lines.append("")
+
+    lines.extend([
+        "---",
+        "💡 Use `get_workspace_path(task_id)` to get a path for file operations"
+    ])
+
+    return "\n".join(lines)
 
 
 @mcp.resource("tasks://stats")
@@ -821,6 +1520,51 @@ Let me help you prepare your standup update based on your tasks.
 - Am I on track? (overall progress assessment)
 
 Let's generate your standup by looking at your recent task activity!"""
+
+
+@mcp.prompt(
+    name="workOnTask",
+    description="Start working on a task with automatic workspace setup",
+)
+def work_on_task_prompt(task_id: int) -> str:
+    """Generate a prompt for working on a task with workspace context.
+
+    Args:
+        task_id: ID of the task to work on
+    """
+    return f"""🚀 **Starting Work on Task #{task_id}**
+
+Let me set up your working environment:
+
+**Step 1: Load Task Context**
+- Fetch task details with `get_task({task_id})`
+- Review description, requirements, and current status
+
+**Step 2: Ensure Workspace**
+- Use `ensure_workspace({task_id})` to create/verify workspace
+- This gives you a dedicated directory for:
+  - 📝 `notes/` - Documentation and planning
+  - 💻 `code/` - Code experiments and snippets
+  - 📊 `logs/` - Execution logs and debugging
+  - 🗑️ `tmp/` - Temporary files
+
+**Step 3: Set Working Directory**
+- Get workspace path with `get_workspace_path({task_id})`
+- All file operations should be scoped to this directory
+- Keeps task work isolated and organized
+
+**Step 4: Begin Work**
+- Create a notes/plan.md with approach
+- Store any code experiments in code/
+- Log progress and decisions in notes/
+- Use git commits (workspace has git initialized)
+
+**Step 5: Track Progress**
+- Update task status: `update_task({task_id}, status="in_progress")`
+- Add notes to task description as you work
+- When done: `update_task({task_id}, status="completed")`
+
+Let's get started! First, I'll load the task and set up your workspace."""
 
 
 @mcp.prompt(

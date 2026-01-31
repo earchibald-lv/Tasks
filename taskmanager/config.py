@@ -353,6 +353,43 @@ def reset_settings() -> None:
     _settings = None
 
 
+def create_settings_for_profile(profile: str) -> Settings:
+    """Create a new Settings instance for a specific profile.
+
+    This bypasses the singleton pattern to allow multiple profiles
+    to be used simultaneously (e.g., in MCP server with per-tool profiles).
+
+    Args:
+        profile: Database profile to use (default, dev, test)
+
+    Returns:
+        Settings: A new Settings instance configured for the profile
+    """
+    # Load TOML config
+    toml_config = load_toml_config()
+
+    # Flatten nested config for Pydantic
+    flat_config: dict[str, Any] = {}
+
+    # Handle general section
+    if "general" in toml_config:
+        flat_config.update(toml_config["general"])
+
+    # Override profile
+    flat_config["profile"] = profile
+
+    # Pass nested sections as-is
+    for key in ["database", "defaults", "logging", "mcp", "jira"]:
+        if key in toml_config:
+            flat_config[key] = toml_config[key]
+
+    # Create settings with TOML config
+    settings = Settings(**flat_config)
+    settings.ensure_directories()
+
+    return settings
+
+
 def get_user_config_path() -> Path:
     """Get the user configuration file path.
 

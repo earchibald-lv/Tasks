@@ -68,6 +68,9 @@ class Task(SQLModel, table=True):
     tags: str | None = Field(default=None, description="Comma-separated tags for categorization", index=True)
     attachments: str | None = Field(default=None, description="JSON array of attachment metadata")
 
+    # Workspace
+    workspace_path: str | None = Field(default=None, description="Path to task-specific LLM agent workspace")
+
     def mark_updated(self) -> None:
         """Update the updated_at timestamp to current time."""
         self.updated_at = datetime.now()

@@ -928,5 +928,504 @@ def attach_path(
         raise typer.Exit(1)
 
 
+# Workspace management subcommand group
+workspace_app = typer.Typer(help="Manage task workspaces")
+app.add_typer(workspace_app, name="workspace")
+
+
+@workspace_app.command("create")
+def workspace_create(
+    task_id: int = typer.Argument(..., help="Task ID to create workspace for"),
+    no_git: bool = typer.Option(False, "--no-git", help="Skip git initialization"),
+) -> None:
+    """Create a persistent workspace for a task."""
+    try:
+        service = get_service()
+
+        # Create workspace
+        metadata = service.create_workspace(
+            task_id=task_id,
+            initialize_git=not no_git
+        )
+
+        console.print(f"[green]✓[/green] Created workspace for task #{task_id}", style="bold")
+        console.print(f"  Path: {metadata['workspace_path']}")
+        console.print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@workspace_app.command("info")
+def workspace_info(
+    task_id: int = typer.Argument(..., help="Task ID"),
+) -> None:
+    """Show workspace information for a task."""
+    try:
+        service = get_service()
+        metadata = service.get_workspace_info(task_id)
+
+        if not metadata:
+            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
+            raise typer.Exit(0)
+
+        from datetime import datetime
+
+        console.print(f"[bold]Workspace for Task #{task_id}[/bold]")
+        console.print(f"  Path: {metadata['workspace_path']}")
+        console.print(f"  Created: {metadata['created_at']}")
+        console.print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
+        if metadata.get('last_accessed'):
+            console.print(f"  Last accessed: {metadata['last_accessed']}")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@workspace_app.command("path")
+def workspace_path(
+    task_id: int = typer.Argument(..., help="Task ID"),
+) -> None:
+    """Show the path to a task's workspace."""
+    try:
+        service = get_service()
+        path = service.get_workspace_path(task_id)
+
+        if not path:
+            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
+            raise typer.Exit(0)
+
+        console.print(str(path))
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@workspace_app.command("open")
+def workspace_open(
+    task_id: int = typer.Argument(..., help="Task ID"),
+) -> None:
+    """Open a task's workspace in Finder (macOS)."""
+    try:
+        import subprocess
+        import sys
+
+        service = get_service()
+        path = service.get_workspace_path(task_id)
+
+        if not path:
+            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
+            raise typer.Exit(0)
+
+        if not path.exists():
+            console.print(f"[red]Workspace directory does not exist:[/red] {path}")
+            raise typer.Exit(1)
+
+        # Open the directory
+        if sys.platform == "darwin":  # macOS
+            subprocess.run(["open", str(path)])
+        elif sys.platform == "win32":  # Windows
+            subprocess.run(["explorer", str(path)])
+        else:  # Linux
+            subprocess.run(["xdg-open", str(path)])
+
+        console.print(f"[green]Opened workspace:[/green] {path}")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@workspace_app.command("delete")
+def workspace_delete(
+    task_id: int = typer.Argument(..., help="Task ID"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+) -> None:
+    """Delete a task's workspace and all its contents."""
+    try:
+        service = get_service()
+
+        # Check if workspace exists
+        path = service.get_workspace_path(task_id)
+        if not path:
+            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
+            raise typer.Exit(0)
+
+        # Confirm deletion
+        if not confirm_action(
+            f"Delete workspace for task #{task_id}? This will permanently remove all files in {path}",
+            force=force
+        ):
+            console.print("[yellow]Deletion cancelled.[/yellow]")
+            raise typer.Exit(0)
+
+        deleted = service.delete_workspace(task_id)
+
+        if deleted:
+            console.print(f"[green]✓[/green] Deleted workspace for task #{task_id}", style="bold")
+        else:
+            console.print(f"[yellow]Workspace not found.[/yellow]")
+            raise typer.Exit(1)
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@workspace_app.command("list")
+def workspace_list(
+    task_id: int = typer.Argument(..., help="Task ID"),
+    subdirectory: str = typer.Option("", "--dir", "-d", help="Subdirectory to list"),
+    pattern: str = typer.Option("*", "--pattern", "-p", help="File pattern (e.g., *.py, *.md)"),
+) -> None:
+    """List files in a task's workspace."""
+    try:
+        import datetime
+        from pathlib import Path
+
+        service = get_service()
+        workspace_path = service.get_workspace_path(task_id)
+
+        if not workspace_path:
+            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
+            raise typer.Exit(0)
+
+        # Build target path
+        target_path = Path(workspace_path) / subdirectory if subdirectory else Path(workspace_path)
+
+        if not target_path.exists():
+            console.print(f"[red]Directory not found:[/red] {target_path}")
+            raise typer.Exit(1)
+
+        # Get matching files
+        if pattern == "*":
+            files = list(target_path.rglob("*"))
+        else:
+            files = list(target_path.rglob(pattern))
+
+        # Filter to only files
+        files = [f for f in files if f.is_file()]
+        files = [f for f in files if ".git" not in str(f) and "__pycache__" not in str(f)]
+
+        if not files:
+            console.print(f"[yellow]No files found[/yellow]")
+            raise typer.Exit(0)
+
+        # Sort by modification time
+        files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+
+        console.print(f"[bold]Files in workspace for task #{task_id}[/bold]")
+        console.print(f"Path: {target_path}")
+        console.print(f"Pattern: {pattern}")
+        console.print(f"Found: {len(files)} file(s)\n")
+
+        for f in files[:50]:
+            relative_path = f.relative_to(workspace_path)
+            size = f.stat().st_size
+            modified = datetime.datetime.fromtimestamp(f.stat().st_mtime)
+
+            # Format size
+            if size < 1024:
+                size_str = f"{size}B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f}KB"
+            else:
+                size_str = f"{size / (1024 * 1024):.1f}MB"
+
+            console.print(f"  {relative_path} - {size_str} - {modified.strftime('%Y-%m-%d %H:%M')}")
+
+        if len(files) > 50:
+            console.print(f"\n... and {len(files) - 50} more files")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@workspace_app.command("search")
+def workspace_search(
+    task_id: int = typer.Argument(..., help="Task ID"),
+    query: str = typer.Argument(..., help="Search query"),
+    pattern: str = typer.Option("*", "--pattern", "-p", help="File pattern (e.g., *.py, *.md)"),
+    case_sensitive: bool = typer.Option(False, "--case-sensitive", "-c", help="Case sensitive search"),
+    max_results: int = typer.Option(50, "--max", "-m", help="Maximum results"),
+) -> None:
+    """Search for content in a task's workspace."""
+    try:
+        import subprocess
+
+        service = get_service()
+        workspace_path = service.get_workspace_path(task_id)
+
+        if not workspace_path:
+            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
+            raise typer.Exit(0)
+
+        if not workspace_path.exists():
+            console.print(f"[red]Workspace directory not found:[/red] {workspace_path}")
+            raise typer.Exit(1)
+
+        # Build ripgrep command
+        rg_args = [
+            "rg",
+            "--color", "always",
+            "--line-number",
+            "--heading",
+            "--max-count", str(max_results),
+        ]
+
+        if not case_sensitive:
+            rg_args.append("--ignore-case")
+
+        if pattern != "*":
+            rg_args.extend(["--glob", pattern])
+
+        rg_args.extend([
+            "--glob", "!.git",
+            "--glob", "!tmp/*",
+            "--glob", "!*.pyc",
+            "--glob", "!__pycache__",
+        ])
+
+        rg_args.extend([query, str(workspace_path)])
+
+        # Execute search
+        result = subprocess.run(
+            rg_args,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 1:
+            console.print(f"[yellow]No matches found for:[/yellow] {query}")
+            raise typer.Exit(0)
+
+        if result.returncode > 1:
+            console.print(f"[red]Search error:[/red] {result.stderr}")
+            raise typer.Exit(1)
+
+        # Display results
+        console.print(f"[bold]Search results for:[/bold] {query}")
+        console.print(f"Pattern: {pattern}\n")
+        console.print(result.stdout)
+
+    except subprocess.TimeoutExpired:
+        console.print("[red]Search timed out[/red]")
+        raise typer.Exit(1)
+    except FileNotFoundError:
+        console.print("[red]ripgrep not found.[/red] Install with: brew install ripgrep")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
+@app.command("search")
+def search_all(
+    query: str = typer.Argument(..., help="Search query"),
+    workspaces: bool = typer.Option(True, "--workspaces/--no-workspaces", help="Search workspace files"),
+    tasks: bool = typer.Option(True, "--tasks/--no-tasks", help="Search task metadata"),
+    pattern: str = typer.Option("*", "--pattern", "-p", help="File pattern for workspace search"),
+    case_sensitive: bool = typer.Option(False, "--case-sensitive", "-c", help="Case sensitive search"),
+    status: str = typer.Option("all", "--status", "-s", help="Filter by status"),
+) -> None:
+    """Search across all tasks and workspaces."""
+    try:
+        import subprocess
+
+        service = get_service()
+
+        # Build filters
+        filters = {}
+        if status != "all":
+            from taskmanager.models import TaskStatus
+            filters["status"] = TaskStatus(status)
+
+        # Get all tasks
+        all_tasks, total = service.list_tasks(**filters, limit=100)
+
+        if total == 0:
+            console.print("[yellow]No tasks found[/yellow]")
+            raise typer.Exit(0)
+
+        task_matches = []
+        workspace_matches = []
+
+        # Search task metadata
+        if tasks:
+            query_lower = query.lower() if not case_sensitive else query
+
+            for task in all_tasks:
+                matches = []
+
+                title_check = task.title.lower() if not case_sensitive else task.title
+                if query_lower in title_check:
+                    matches.append("title")
+
+                if task.description:
+                    desc_check = task.description.lower() if not case_sensitive else task.description
+                    if query_lower in desc_check:
+                        matches.append("description")
+
+                if task.tags:
+                    tags_check = task.tags.lower() if not case_sensitive else task.tags
+                    if query_lower in tags_check:
+                        matches.append("tags")
+
+                if task.jira_issues:
+                    jira_check = task.jira_issues.lower() if not case_sensitive else task.jira_issues
+                    if query_lower in jira_check:
+                        matches.append("JIRA")
+
+                if matches:
+                    task_matches.append({
+                        "task": task,
+                        "fields": matches
+                    })
+
+        # Search workspaces
+        if workspaces:
+            for task in all_tasks:
+                if not task.workspace_path or not task.id:
+                    continue
+
+                workspace_path = service.get_workspace_path(task.id)
+                if not workspace_path or not workspace_path.exists():
+                    continue
+
+                try:
+                    rg_args = [
+                        "rg",
+                        "--color", "never",
+                        "--files-with-matches",
+                        "--max-count", "5",
+                    ]
+
+                    if not case_sensitive:
+                        rg_args.append("--ignore-case")
+
+                    if pattern != "*":
+                        rg_args.extend(["--glob", pattern])
+
+                    rg_args.extend([
+                        "--glob", "!.git",
+                        "--glob", "!tmp/*",
+                        "--glob", "!*.pyc",
+                        "--glob", "!__pycache__",
+                    ])
+
+                    rg_args.extend([query, str(workspace_path)])
+
+                    result = subprocess.run(
+                        rg_args,
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+
+                    if result.returncode == 0:
+                        matched_files = result.stdout.strip().split("\n")
+                        matched_files = [f.replace(str(workspace_path) + "/", "") for f in matched_files if f]
+
+                        workspace_matches.append({
+                            "task": task,
+                            "files": matched_files
+                        })
+
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+
+        # Display results
+        if not task_matches and not workspace_matches:
+            console.print(f"[yellow]No matches found for:[/yellow] {query}")
+            console.print(f"Searched: {total} task(s)")
+            return
+
+        console.print(f"[bold]Search Results for:[/bold] {query}\n")
+        console.print(f"Searched: {total} task(s)")
+        console.print(f"Found: {len(task_matches)} task match(es), {len(workspace_matches)} workspace match(es)\n")
+
+        # Show task matches
+        if task_matches:
+            console.print("[bold]Task Metadata Matches:[/bold]")
+            for match in task_matches[:20]:
+                task = match["task"]
+                fields = ", ".join(match["fields"])
+
+                from taskmanager.models import TaskStatus
+                status_emoji = {
+                    TaskStatus.PENDING: "⭕",
+                    TaskStatus.IN_PROGRESS: "🔄",
+                    TaskStatus.COMPLETED: "✅",
+                    TaskStatus.CANCELLED: "❌",
+                    TaskStatus.ARCHIVED: "📦",
+                }.get(task.status, "❓")
+
+                console.print(f"{status_emoji} [bold]Task #{task.id}:[/bold] {task.title}")
+                console.print(f"   Matched in: {fields}")
+                if task.workspace_path:
+                    console.print("   📁 Has workspace")
+                console.print()
+
+        # Show workspace matches
+        if workspace_matches:
+            console.print("[bold]Workspace Content Matches:[/bold]")
+            for match in workspace_matches[:20]:
+                task = match["task"]
+                files = match["files"]
+
+                from taskmanager.models import TaskStatus
+                status_emoji = {
+                    TaskStatus.PENDING: "⭕",
+                    TaskStatus.IN_PROGRESS: "🔄",
+                    TaskStatus.COMPLETED: "✅",
+                    TaskStatus.CANCELLED: "❌",
+                    TaskStatus.ARCHIVED: "📦",
+                }.get(task.status, "❓")
+
+                console.print(f"{status_emoji} [bold]Task #{task.id}:[/bold] {task.title}")
+                console.print(f"   Found in {len(files)} file(s):")
+                for f in files[:5]:
+                    console.print(f"      - {f}")
+                if len(files) > 5:
+                    console.print(f"      ... and {len(files) - 5} more")
+                console.print()
+
+    except FileNotFoundError:
+        console.print("[red]ripgrep not found.[/red] Install with: brew install ripgrep")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

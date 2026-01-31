@@ -16,6 +16,7 @@ from taskmanager.attachments import (
 )
 from taskmanager.models import Priority, Task, TaskStatus
 from taskmanager.repository import TaskRepository
+from taskmanager.workspace import WorkspaceManager, WorkspaceMetadata
 
 
 class TaskService:
@@ -33,6 +34,7 @@ class TaskService:
         """
         self.repository = repository
         self.attachment_manager = AttachmentManager()
+        self.workspace_manager = WorkspaceManager()
 
     def create_task(
         self,
@@ -458,3 +460,109 @@ class TaskService:
             list[str]: Sorted list of unique tags.
         """
         return self.repository.get_all_used_tags()
+
+    def create_workspace(
+        self,
+        task_id: int,
+        initialize_git: bool = True
+    ) -> WorkspaceMetadata:
+        """Create a workspace for a task.
+
+        Args:
+            task_id: The task ID
+            initialize_git: Whether to initialize a git repository
+
+        Returns:
+            Workspace metadata
+
+        Raises:
+            ValueError: If task not found or workspace already exists
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        # Check if workspace already exists
+        if task.workspace_path:
+            raise ValueError(f"Workspace already exists for task #{task_id}")
+
+        # Create workspace
+        metadata = self.workspace_manager.create_workspace(
+            task_id=task_id,
+            initialize_git=initialize_git
+        )
+
+        # Update task with workspace path
+        task.workspace_path = metadata["workspace_path"]
+        task.mark_updated()
+        self.repository.update(task)
+
+        return metadata
+
+    def get_workspace_info(self, task_id: int) -> WorkspaceMetadata | None:
+        """Get workspace information for a task.
+
+        Args:
+            task_id: The task ID
+
+        Returns:
+            Workspace metadata if exists, None otherwise
+
+        Raises:
+            ValueError: If task not found
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        if not task.workspace_path:
+            return None
+
+        return self.workspace_manager.get_workspace_metadata(task_id)
+
+    def delete_workspace(self, task_id: int) -> bool:
+        """Delete a task's workspace.
+
+        Args:
+            task_id: The task ID
+
+        Returns:
+            bool: True if workspace was deleted
+
+        Raises:
+            ValueError: If task not found
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        if not task.workspace_path:
+            return False
+
+        # Delete workspace
+        deleted = self.workspace_manager.delete_workspace(task_id)
+
+        if deleted:
+            # Update task to remove workspace path
+            task.workspace_path = None
+            task.mark_updated()
+            self.repository.update(task)
+
+        return deleted
+
+    def get_workspace_path(self, task_id: int) -> Path | None:
+        """Get the workspace path for a task.
+
+        Args:
+            task_id: The task ID
+
+        Returns:
+            Path to workspace if exists, None otherwise
+
+        Raises:
+            ValueError: If task not found
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        if not task.workspace_path:
+            return None
+
+        return Path(task.workspace_path)
