@@ -46,7 +46,11 @@ class Task(SQLModel, table=True):
     """
 
     # Identity
-    id: int | None = Field(default=None, primary_key=True)
+    id: int | None = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={"autoincrement": True}
+    )
 
     # Core fields
     title: str = Field(min_length=1, max_length=200, index=True)
