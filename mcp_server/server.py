@@ -1198,6 +1198,173 @@ def list_workspace_files(
 # ============================================================================
 
 
+@mcp.resource("tasks://schema/status")
+def get_status_enum() -> str:
+    """Get available TaskStatus enum values with descriptions.
+
+    This resource helps LLM agents understand valid status values
+    without trial and error when creating or updating tasks.
+    """
+    lines = [
+        "# Task Status Values",
+        "",
+        "Valid status values for tasks in the system:",
+        "",
+        "## Available Status Values",
+        "",
+        "- **pending** - Task not yet started (default for new tasks)",
+        "- **in_progress** - Currently working on this task",
+        "- **completed** - Task finished successfully",
+        "- **cancelled** - Task abandoned or no longer needed",
+        "- **archived** - Old/inactive task kept for records",
+        "",
+        "## Usage in MCP Tools",
+        "",
+        "When using MCP tools, note the status parameter mapping:",
+        "- MCP tools accept: `todo`, `in_progress`, `done`",
+        "- Database stores: `pending`, `in_progress`, `completed`",
+        "",
+        "**Mapping:**",
+        "- `todo` → `pending`",
+        "- `in_progress` → `in_progress`",
+        "- `done` → `completed`",
+        "",
+        "## CLI Usage",
+        "",
+        "The CLI uses the full status names:",
+        "```bash",
+        "tasks add \"My task\" --status pending",
+        "tasks update 1 --status in_progress",
+        "tasks update 1 --status completed",
+        "```",
+    ]
+
+    return "\n".join(lines)
+
+
+@mcp.resource("tasks://schema/priority")
+def get_priority_enum() -> str:
+    """Get available Priority enum values with descriptions.
+
+    This resource helps LLM agents understand valid priority values
+    when creating or updating tasks.
+    """
+    lines = [
+        "# Task Priority Values",
+        "",
+        "Valid priority levels for tasks in the system:",
+        "",
+        "## Available Priority Values",
+        "",
+        "- **low** - Nice to have, no urgency",
+        "- **medium** - Normal priority (default for new tasks)",
+        "- **high** - Important, should be addressed soon",
+        "- **urgent** - Critical/time-sensitive, requires immediate attention",
+        "",
+        "## Usage Examples",
+        "",
+        "**MCP Tools:**",
+        "```python",
+        'create_task(title="Fix bug", priority="high")',
+        'update_task(task_id=1, priority="urgent")',
+        "```",
+        "",
+        "**CLI:**",
+        "```bash",
+        'tasks add "Fix bug" --priority high',
+        "tasks update 1 --priority urgent",
+        "```",
+    ]
+
+    return "\n".join(lines)
+
+
+@mcp.resource("tasks://tools")
+def get_available_tools() -> str:
+    """Get comprehensive list of all available MCP tools.
+
+    This resource provides a complete reference of task management
+    functionality available through the MCP server.
+    """
+    lines = [
+        "# Available MCP Tools",
+        "",
+        "Complete reference of task management tools available in this MCP server.",
+        "",
+        "## Task CRUD Operations",
+        "",
+        "### create_task_interactive(profile)",
+        "Create a new task with an interactive form. Prompts user for all task details.",
+        "",
+        "### create_task(title, description, priority, status, due_date, tags, jira_issues, profile)",
+        "Create a new task non-interactively. Use when you have all details upfront.",
+        "",
+        "### update_task_interactive(task_id, profile)",
+        "Update an existing task with an interactive form showing current values.",
+        "",
+        "### update_task(task_id, title, description, priority, status, due_date, tags, jira_issues, profile)",
+        "Update a task non-interactively. Only provide fields you want to change.",
+        "",
+        "### get_task(task_id, profile)",
+        "Get detailed information about a specific task.",
+        "",
+        "### list_tasks(status, priority, tag, limit, offset, profile)",
+        "List tasks with optional filtering by status, priority, or tag.",
+        "",
+        "### complete_task(task_id, profile)",
+        "Mark a task as completed (shortcut for update with status='done').",
+        "",
+        "### delete_task_interactive(task_id, profile)",
+        "Delete a task with confirmation dialog showing task details.",
+        "",
+        "### delete_task(task_id, profile)",
+        "Delete a task immediately without confirmation (use with caution).",
+        "",
+        "## Workspace Management",
+        "",
+        "### create_workspace(task_id, initialize_git, profile)",
+        "Create a persistent workspace directory for a task with notes/, code/, logs/, tmp/ folders.",
+        "",
+        "### ensure_workspace(task_id, initialize_git, profile)",
+        "Ensure a workspace exists, creating it if needed. Safe to call multiple times.",
+        "",
+        "### get_workspace_info(task_id, profile)",
+        "Get workspace metadata including path, creation time, and git status.",
+        "",
+        "### get_workspace_path(task_id, profile)",
+        "Get the filesystem path to a task's workspace for file operations.",
+        "",
+        "### delete_workspace(task_id, profile)",
+        "Delete a task's workspace and all its contents permanently.",
+        "",
+        "### list_workspace_files(task_id, subdirectory, file_pattern, profile)",
+        "Browse files in a workspace directory with optional pattern filtering.",
+        "",
+        "### search_workspace(task_id, query, file_pattern, case_sensitive, max_results, profile)",
+        "Search for content within a task's workspace using regex patterns.",
+        "",
+        "## Search Operations",
+        "",
+        "### search_all_tasks(query, search_workspaces, search_task_fields, file_pattern, case_sensitive, status_filter, profile)",
+        "Search across all tasks and their workspaces comprehensively.",
+        "",
+        "## Profiles",
+        "",
+        "All tools support a `profile` parameter to select which database to use:",
+        "- **default** - Main task database (~/.taskmanager/tasks.db)",
+        "- **dev** - Development/testing tasks (~/.taskmanager/tasks_dev.db)",
+        "- **test** - Test tasks (~/.taskmanager/tasks_test.db)",
+        "",
+        "## Status & Priority Values",
+        "",
+        "See these resources for valid values:",
+        "- `tasks://schema/status` - Available status values",
+        "- `tasks://schema/priority` - Available priority levels",
+    ]
+
+    return "\n".join(lines)
+
+
 @mcp.resource("tasks://workspaces")
 def list_workspaces() -> str:
     """List all tasks that have workspaces."""
