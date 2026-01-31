@@ -34,8 +34,10 @@ _automation_mode = os.getenv("TASKS_AUTOMATION", "").lower() in ("1", "true", "y
 
 def get_service() -> TaskService:
     """Create and return a TaskService instance with dependencies."""
-    init_db()  # Ensure database is initialized
-    session = get_session()
+    settings = get_settings()
+    profile = settings.profile
+    init_db(profile)  # Ensure database is initialized with correct profile
+    session = get_session(profile)  # Get session for correct profile
     repository = SQLTaskRepository(session)
     return TaskService(repository)
 

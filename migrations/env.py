@@ -6,7 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 
 # Import taskmanager models and config
-from taskmanager.config import get_settings
+from taskmanager.config import create_settings_for_profile
 from taskmanager.models import SQLModel
 
 # this is the Alembic Config object, which provides
@@ -19,8 +19,9 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Set the database URL from taskmanager config
-# This respects the --profile flag and configuration
-settings = get_settings()
+# Support -x profile=dev to specify which database to migrate
+profile = context.get_x_argument(as_dictionary=True).get("profile", "default")
+settings = create_settings_for_profile(profile)
 config.set_main_option("sqlalchemy.url", settings.get_database_url())
 
 # add your model's MetaData object here
