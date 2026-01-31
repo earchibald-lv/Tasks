@@ -171,7 +171,7 @@ def list_tasks(
     format: str = typer.Option("table", "--format", "-f", help="Output format (table, simple, json)"),
     all: bool = typer.Option(False, "--all", "-a", help="Show all tasks including completed, cancelled, and archived"),
     show_tags: bool = typer.Option(False, "--show-tags", help="Show tags column in table"),
-    show_jira: bool = typer.Option(False, "--show-jira", help="Show JIRA issues column in table"),
+    show_jira: int | None = typer.Option(None, "--show-jira", help="Show JIRA issues column. Optionally limit to N issues (e.g., --show-jira 2). Use 0 or omit value for all issues."),
     show_created: bool = typer.Option(False, "--show-created", help="Show created date column in table"),
     show_updated: bool = typer.Option(False, "--show-updated", help="Show updated date column in table"),
 ) -> None:
@@ -254,7 +254,7 @@ def list_tasks(
             # Add optional columns based on flags
             if show_tags:
                 table.add_column("Tags", style="green")
-            if show_jira:
+            if show_jira is not None:
                 table.add_column("JIRA", style="blue")
             if show_created:
                 table.add_column("Created", style="dim")
@@ -303,8 +303,17 @@ def list_tasks(
                 if show_tags:
                     tags_display = task.tags if task.tags else ""
                     row_data.append(tags_display)
-                if show_jira:
-                    jira_display = task.jira_issues if task.jira_issues else ""
+                if show_jira is not None:
+                    # Format JIRA issues with optional limit
+                    if task.jira_issues:
+                        jira_list = [issue.strip() for issue in task.jira_issues.split(",")]
+                        # Limit to show_jira items if > 0, otherwise show all
+                        if show_jira > 0 and len(jira_list) > show_jira:
+                            jira_display = ", ".join(jira_list[:show_jira]) + f" (+{len(jira_list) - show_jira})"
+                        else:
+                            jira_display = ", ".join(jira_list)
+                    else:
+                        jira_display = ""
                     row_data.append(jira_display)
                 if show_created:
                     created_display = task.created_at.strftime("%Y-%m-%d") if task.created_at else ""
