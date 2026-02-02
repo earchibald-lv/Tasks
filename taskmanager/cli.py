@@ -5,12 +5,16 @@ providing user-friendly commands for task management.
 """
 
 import os
+import shutil
+import subprocess
+import tempfile
 from datetime import date, datetime
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
+from importlib.metadata import version, PackageNotFoundError
 
 from taskmanager.config import get_settings
 from taskmanager.database import get_session, init_db
@@ -32,6 +36,22 @@ console = Console()
 _automation_mode = os.getenv("TASKS_AUTOMATION", "").lower() in ("1", "true", "yes")
 
 
+def get_version() -> str:
+    """Get the package version."""
+    try:
+        return version("taskmanager")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def version_callback(value: bool):
+    """Display version information and exit."""
+    if value:
+        app_version = get_version()
+        console.print(f"tasks {app_version}")
+        raise typer.Exit()
+
+
 def get_service() -> TaskService:
     """Create and return a TaskService instance with dependencies."""
     settings = get_settings()
@@ -40,6 +60,101 @@ def get_service() -> TaskService:
     session = get_session(profile)  # Get session for correct profile
     repository = SQLTaskRepository(session)
     return TaskService(repository)
+
+
+def is_glow_available() -> bool:
+    """Check if glow is available in the system PATH."""
+    return shutil.which("glow") is not None
+
+
+def format_task_as_markdown(task, service, settings) -> str:
+    """Format a task as markdown for display with glow."""
+    lines = []
+
+    # Title with task ID
+    lines.append(f"# Task #{task.id}: {task.title}")
+    lines.append("")
+
+    # Description
+    if task.description:
+        lines.append("## Description")
+        lines.append(task.description)  # Don't re-encode markdown already in description
+        lines.append("")
+
+    # Status with emoji
+    status_icons = {
+        TaskStatus.PENDING: "○",
+        TaskStatus.IN_PROGRESS: "◐",
+        TaskStatus.COMPLETED: "✓",
+        TaskStatus.CANCELLED: "✕",
+        TaskStatus.ARCHIVED: "✖",
+    }
+    status_icon = status_icons.get(task.status, "?")
+    lines.append(f"**Status:** {status_icon} {task.status.value}")
+    lines.append("")
+
+    # Priority
+    lines.append(f"**Priority:** {task.priority.value}")
+    lines.append("")
+
+    # JIRA issues with links
+    if task.jira_issues:
+        jira_links = service.format_jira_links(task.jira_issues, settings.jira.jira_url)
+        if jira_links:
+            lines.append("**JIRA Issues:**")
+            for issue_key, url in jira_links:
+                lines.append(f"- [{issue_key}]({url})")
+        else:
+            # No JIRA URL configured, just show the keys
+            jira_list = [issue.strip() for issue in task.jira_issues.split(",")]
+            lines.append("**JIRA Issues:**")
+            for issue in jira_list:
+                lines.append(f"- {issue}")
+        lines.append("")
+
+    # Tags
+    if task.tags:
+        tag_list = [tag.strip() for tag in task.tags.split(",")]
+        lines.append(f"**Tags:** {', '.join(tag_list)}")
+        lines.append("")
+
+    # Attachments
+    attachments = service.list_attachments(task.id)
+    if attachments:
+        lines.append(f"**Attachments:** {len(attachments)} file(s) - use `tasks attach list {task.id}` to view")
+        lines.append("")
+
+    # Dates
+    if task.due_date:
+        is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
+        if is_overdue:
+            lines.append(f"**Due:** {task.due_date} ⚠ **OVERDUE**")
+        else:
+            lines.append(f"**Due:** {task.due_date}")
+        lines.append("")
+
+    lines.append(f"**Created:** {task.created_at.strftime('%Y-%m-%d %H:%M')}")
+    if task.updated_at:
+        lines.append(f"**Updated:** {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
+
+    return "\n".join(lines)
+
+
+def display_with_glow(markdown_content: str) -> bool:
+    """Display markdown content using glow. Returns True if successful, False otherwise."""
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write(markdown_content)
+            temp_file = f.name
+
+        # Use glow to display the markdown
+        result = subprocess.run(["glow", temp_file], check=True)
+        os.unlink(temp_file)  # Clean up temp file
+        return True
+    except (subprocess.CalledProcessError, OSError):
+        if os.path.exists(temp_file):
+            os.unlink(temp_file)  # Clean up on error
+        return False
 
 
 def confirm_action(message: str, force: bool = False, yes_flag: bool = False) -> bool:
@@ -345,6 +460,19 @@ def show_task(
         settings = get_settings()
         task = service.get_task(task_id)
 
+        # Try to use glow for enhanced markdown display
+        if is_glow_available():
+            markdown_content = format_task_as_markdown(task, service, settings)
+            if display_with_glow(markdown_content):
+                return  # Successfully displayed with glow
+            else:
+                # Glow failed, inform user and fall back to regular display
+                console.print("[yellow]Note:[/yellow] glow encountered an issue, falling back to regular display")
+        else:
+            # Inform user about glow enhancement option
+            console.print("[dim]💡 Tip: Install 'glow' for enhanced markdown display of tasks[/dim]")
+
+        # Fall back to regular rich console display
         # Create a panel with task details
         console.print(f"\n[bold cyan]Task #{task.id}[/bold cyan]")
         console.print(f"[bold]Title:[/bold] {task.title}")
@@ -725,6 +853,7 @@ def config_init(
 
 @app.callback()
 def main(
+    version: bool = typer.Option(False, "--version", "-V", help="Show version and exit", callback=version_callback, is_eager=True),
     config: Path | None = typer.Option(
         None,
         "--config",
@@ -768,7 +897,7 @@ def main(
     tasks --config ./my-config.toml list
     """
     from taskmanager.config import get_settings
-    
+
     # Get settings and apply overrides
     settings = get_settings()
     
