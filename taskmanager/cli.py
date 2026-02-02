@@ -101,6 +101,7 @@ def load_from_file_if_needed(value: str | None) -> str | None:
 
 
 @app.command("add")
+@app.command("new")  # Alias for 'add' command
 def add_task(
     title: str = typer.Argument(..., help="Task title (required)"),
     description: str | None = typer.Option(None, "--description", "-d", help="Task description"),
