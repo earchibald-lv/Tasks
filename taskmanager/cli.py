@@ -1568,5 +1568,159 @@ def search_all(
         raise typer.Exit(1)
 
 
+@app.command("chat")
+def chat_command(
+    task_id: int | None = typer.Argument(None, help="Optional task ID to focus on"),
+) -> None:
+    """Launch Claude agent session with task and JIRA context.
+    
+    Opens an interactive Claude chat session with MCP servers configured:
+    - tasks-mcp: For task management operations
+    - atlassian-mcp: For JIRA/Confluence integration (with 1Password credentials)
+    
+    Uses 1Password CLI to securely retrieve JIRA API tokens.
+    If a task ID is provided, includes that task's context in the conversation.
+    """
+    try:
+        import json
+        import tempfile
+        
+        service = get_service()
+        settings = get_settings()
+        
+        # Verify claude CLI is available
+        try:
+            subprocess.run(
+                ["claude", "--version"],
+                capture_output=True,
+                check=True,
+                timeout=5
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            console.print("[red]Error:[/red] 'claude' CLI not found or not working")
+            console.print("Install Claude CLI: https://github.com/anthropics/anthropic-sdk-python")
+            raise typer.Exit(1)
+        
+        # Determine the working directory
+        working_dir = Path.cwd()
+        if task_id:
+            # Get or create workspace for the task
+            workspace_path = service.get_workspace_path(task_id)
+            if not workspace_path:
+                console.print(f"[yellow]No workspace exists for task #{task_id}. Creating one...[/yellow]")
+                service.create_workspace(task_id=task_id, initialize_git=True)
+                workspace_path = service.get_workspace_path(task_id)
+            
+            if workspace_path:
+                working_dir = workspace_path
+                console.print(f"[green]Opening chat session[/green] for task #{task_id}")
+        
+        # Prepare environment with MCP server configuration
+        env = os.environ.copy()
+        
+        # Build MCP servers configuration for claude CLI
+        mcp_servers = {
+            "tasks": {
+                "command": "tasks-mcp"
+            }
+        }
+        
+        # Add atlassian-mcp with 1Password credential retrieval
+        try:
+            # Try to retrieve JIRA URL and tokens from 1Password
+            jira_url_cmd = ["op", "read", "op://private/jira/url", "--no-newline"]
+            jira_user_cmd = ["op", "read", "op://private/jira/user", "--no-newline"]
+            jira_token_cmd = ["op", "read", "op://private/jira/token", "--no-newline"]
+            
+            try:
+                jira_url = subprocess.run(jira_url_cmd, capture_output=True, text=True, timeout=5).stdout.strip()
+                jira_user = subprocess.run(jira_user_cmd, capture_output=True, text=True, timeout=5).stdout.strip()
+                jira_token = subprocess.run(jira_token_cmd, capture_output=True, text=True, timeout=5).stdout.strip()
+                
+                if jira_url and jira_token:
+                    # Configure atlassian-mcp with credentials from 1Password
+                    mcp_servers["atlassian"] = {
+                        "command": "python",
+                        "args": ["-m", "mcp_atlassian"],
+                        "env": {
+                            "JIRA_URL": jira_url,
+                            "JIRA_USER": jira_user,
+                            "JIRA_TOKEN": jira_token
+                        }
+                    }
+                    console.print("[green]✓[/green] JIRA credentials loaded from 1Password")
+                else:
+                    console.print("[yellow]Warning:[/yellow] Could not retrieve JIRA credentials from 1Password")
+                    console.print("  Expected paths: op://private/jira/url, op://private/jira/user, op://private/jira/token")
+                    console.print("  atlassian-mcp will not be available")
+            except subprocess.TimeoutExpired:
+                console.print("[yellow]Warning:[/yellow] 1Password CLI timeout - skipping atlassian-mcp")
+            except FileNotFoundError:
+                console.print("[yellow]Warning:[/yellow] 1Password CLI ('op') not found - skipping credential retrieval")
+                console.print("  Install with: brew install 1password-cli")
+                console.print("  Then configure: op://private/jira/url, op://private/jira/user, op://private/jira/token")
+        except Exception as e:
+            console.print(f"[yellow]Warning:[/yellow] Could not load 1Password credentials: {e}")
+        
+        # Create a temporary MCP config file
+        mcp_config = {"mcpServers": mcp_servers}
+        
+        # Set environment for claude CLI
+        env["MCP_SERVERS"] = json.dumps(mcp_config)
+        
+        # Build context prompt for the claude session
+        system_context = "You are an expert at managing tasks and JIRA tickets using the available MCP tools.\n"
+        system_context += "You can create, update, complete, and delete tasks.\n"
+        system_context += "You can browse and work with JIRA tickets when credentials are available.\n"
+        system_context += "Always ask for confirmation before making destructive changes.\n"
+        
+        if task_id:
+            task = service.get_task(task_id)
+            system_context += f"\n## Current Task Context\n"
+            system_context += f"Task ID: #{task.id}\n"
+            system_context += f"Title: {task.title}\n"
+            system_context += f"Status: {task.status.value}\n"
+            system_context += f"Priority: {task.priority.value}\n"
+            if task.description:
+                system_context += f"Description: {task.description}\n"
+            if task.due_date:
+                system_context += f"Due: {task.due_date}\n"
+            if task.jira_issues:
+                system_context += f"Related JIRA: {task.jira_issues}\n"
+            system_context += f"Workspace: {working_dir}\n"
+        
+        # Write system prompt to temp file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write(system_context)
+            system_prompt_file = f.name
+        
+        try:
+            # Launch claude CLI with context
+            console.print("\n[bold green]Starting Claude agent session...[/bold green]")
+            console.print("[dim]Type 'exit' or Ctrl+D to end the session[/dim]\n")
+            
+            subprocess.run(
+                ["claude"],
+                cwd=str(working_dir),
+                env=env,
+                check=False
+            )
+            
+            console.print("\n[green]✓[/green] Claude session ended")
+        finally:
+            # Clean up temp file
+            try:
+                Path(system_prompt_file).unlink()
+            except Exception:
+                pass
+        
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()
