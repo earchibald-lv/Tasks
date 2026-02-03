@@ -1568,15 +1568,109 @@ def search_all(
         raise typer.Exit(1)
 
 
+def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
+    """Gather initial task context for Claude session.
+    
+    Args:
+        service: TaskService instance
+        settings: Settings instance from get_settings()
+    
+    Returns:
+        Tuple of (display_text, context_prompt) where:
+        - display_text: Rich formatted text to show user before session starts
+        - context_prompt: Structured context to pass to Claude as initial message
+    """
+    from datetime import date
+    from taskmanager.models import TaskStatus, Priority
+    
+    # Gather task statistics
+    all_tasks, _ = service.list_tasks(limit=100)  # Get up to 100 tasks for overview
+    in_progress = [t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS]
+    pending = [t for t in all_tasks if t.status == TaskStatus.PENDING]
+    overdue = [t for t in all_tasks if t.due_date and t.due_date < date.today() and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
+    high_priority = [t for t in all_tasks if t.priority == Priority.HIGH and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
+    urgent_priority = [t for t in all_tasks if t.priority == Priority.URGENT and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
+    
+    # Build display text for user
+    display_parts = []
+    display_parts.append("[bold cyan]📊 Current Task Context[/bold cyan]\n")
+    
+    profile_name = os.environ.get("TASKMANAGER_PROFILE", "default")
+    display_parts.append(f"[dim]Profile:[/dim] {profile_name}")
+    display_parts.append(f"[dim]Total tasks:[/dim] {len(all_tasks)}")
+    
+    if urgent_priority:
+        display_parts.append(f"[red]⚡ Urgent:[/red] {len(urgent_priority)}")
+    if high_priority:
+        display_parts.append(f"[yellow]⚠️  High priority:[/yellow] {len(high_priority)}")
+    if overdue:
+        display_parts.append(f"[red]⏰ Overdue:[/red] {len(overdue)}")
+    if in_progress:
+        display_parts.append(f"[blue]▶️  In progress:[/blue] {len(in_progress)}")
+    if pending:
+        display_parts.append(f"[dim]⏸️  Pending:[/dim] {len(pending)}")
+    
+    display_text = "\n".join(display_parts)
+    
+    # Build structured context for Claude
+    context_parts = []
+    context_parts.append("# Initial Task Context\n")
+    context_parts.append(f"**Profile:** {profile_name}")
+    context_parts.append(f"**Total tasks:** {len(all_tasks)}\n")
+    
+    if urgent_priority:
+        context_parts.append(f"## 🚨 Urgent Tasks ({len(urgent_priority)})")
+        for task in urgent_priority[:5]:  # Show up to 5
+            context_parts.append(f"- **#{task.id}** {task.title} [{task.status.value}]")
+        if len(urgent_priority) > 5:
+            context_parts.append(f"  _(and {len(urgent_priority) - 5} more)_")
+        context_parts.append("")
+    
+    if overdue:
+        context_parts.append(f"## ⏰ Overdue Tasks ({len(overdue)})")
+        for task in overdue[:5]:
+            context_parts.append(f"- **#{task.id}** {task.title} (due {task.due_date}) [{task.status.value}]")
+        if len(overdue) > 5:
+            context_parts.append(f"  _(and {len(overdue) - 5} more)_")
+        context_parts.append("")
+    
+    if in_progress:
+        context_parts.append(f"## ▶️ In Progress ({len(in_progress)})")
+        for task in in_progress[:5]:
+            jira_info = f" - JIRA: {task.jira_issues}" if task.jira_issues else ""
+            context_parts.append(f"- **#{task.id}** {task.title} [{task.priority.value}]{jira_info}")
+        if len(in_progress) > 5:
+            context_parts.append(f"  _(and {len(in_progress) - 5} more)_")
+        context_parts.append("")
+    
+    if high_priority and not urgent_priority:
+        context_parts.append(f"## ⚠️ High Priority Tasks ({len(high_priority)})")
+        for task in high_priority[:3]:
+            context_parts.append(f"- **#{task.id}** {task.title} [{task.status.value}]")
+        if len(high_priority) > 3:
+            context_parts.append(f"  _(and {len(high_priority) - 3} more)_")
+        context_parts.append("")
+    
+    context_parts.append("\n**I'm ready to help you with your tasks. What would you like to work on?**")
+    
+    context_prompt = "\n".join(context_parts)
+    
+    return display_text, context_prompt
+
+
 @app.command("chat")
 def chat_command(
     task_id: int | None = typer.Argument(None, help="Optional task ID to focus on"),
+    no_context: bool = typer.Option(False, "--no-context", help="Skip automatic context loading"),
 ) -> None:
     """Launch Claude agent session with task and JIRA context.
     
     Opens an interactive Claude chat session with MCP servers configured:
     - tasks-mcp: For task management operations
     - atlassian-mcp: For JIRA/Confluence integration (with configured credentials)
+    
+    Automatically pre-loads current task context including in-progress items,
+    overdue tasks, and high-priority work to provide immediate situational awareness.
     
     Uses credentials from ~/.taskmanager/config.toml for secure authentication.
     If a task ID is provided, includes that task's context in the conversation.
@@ -1663,6 +1757,16 @@ def chat_command(
         
         # Set environment for claude CLI
         env["MCP_SERVERS"] = json.dumps(mcp_servers)
+        
+        # Gather and display initial context (unless disabled)
+        initial_prompt = None
+        if not no_context:
+            try:
+                display_text, context_prompt = _gather_initial_context(service, settings)
+                console.print(f"\n{display_text}\n")
+                initial_prompt = context_prompt
+            except Exception as e:
+                console.print(f"[yellow]Warning:[/yellow] Could not load initial context: {e}")
         
         # Build comprehensive system prompt for the claude session
         system_prompt = """# Mission: Smart Assistant for Task & JIRA Management
@@ -1769,12 +1873,19 @@ When starting a new session, please:
             system_prompt += f"\nPlease help the user work on this task efficiently.\n"
         
         try:
-            # Launch claude CLI with comprehensive system prompt
+            # Launch claude CLI with comprehensive system prompt and initial context
             console.print("\n[bold green]Starting Claude agent session...[/bold green]")
             console.print("[dim]Type 'exit' or Ctrl+D to end the session[/dim]\n")
             
+            # Build command with system prompt
+            claude_cmd = ["claude", "--append-system-prompt", system_prompt]
+            
+            # Add initial prompt with context if available
+            if initial_prompt:
+                claude_cmd.append(initial_prompt)
+            
             subprocess.run(
-                ["claude", "--append-system-prompt", system_prompt],
+                claude_cmd,
                 cwd=str(working_dir),
                 env=env,
                 check=False
