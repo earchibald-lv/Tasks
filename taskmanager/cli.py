@@ -1804,11 +1804,18 @@ The tasks-mcp server provides comprehensive task management capabilities:
 **Search & Discovery:**
 - `mcp_tasks-mcp_search_all_tasks` - Comprehensive search across task metadata and workspace content
 
+**Time Awareness:**
+- `mcp_tasks-mcp_get_current_time` - Get current timestamp with timezone info (ISO 8601, unix timestamp, day of week, weekend detection)
+- `mcp_tasks-mcp_format_datetime` - Format and convert datetime strings with timezone support
+- `mcp_tasks-mcp_calculate_time_delta` - Calculate time differences for deadline tracking and scheduling
+
 **Best Practices for tasks-mcp:**
 - Use interactive versions (`create_task_interactive`, `update_task_interactive`, `delete_task_interactive`) when you need guidance or confirmation
 - Always ensure workspace exists before working with task files
 - Tasks can have JIRA issues linked via comma-separated keys (e.g., "SRE-1234,DEVOPS-5678")
 - Workspaces provide organized structure: notes/, code/, logs/, tmp/
+- Use time-awareness tools for accurate schedule operations, deadline calculations, and time-sensitive workflows
+- All timezone operations support IANA timezone names (UTC, America/New_York, Europe/London, etc.)
 
 ### 2. atlassian-mcp Server
 The atlassian-mcp server provides JIRA and Confluence integration (when credentials are configured):
@@ -1852,6 +1859,7 @@ When starting a new session, please:
 
 - **Safety First:** Always confirm before destructive operations (delete, major updates)
 - **Context Aware:** Consider task status, priority, and deadlines when making suggestions
+- **Time Aware:** Use current time tools to provide accurate schedule information and deadline calculations. Always check current time when discussing due dates or time-sensitive tasks.
 - **Proactive:** Suggest related JIRA issues or tasks that might be relevant
 - **Organized:** Use workspace features to keep notes, code, and logs structured
 - **Efficient:** Batch similar operations when appropriate
