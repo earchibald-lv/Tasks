@@ -1924,9 +1924,14 @@ When starting a new session, please:
             
             # Automatically allow all tasks-mcp and atlassian-mcp tools
             # This enables the agent to use all available MCP tools without manual approval
-            # Use comma-separated format for tool names
-            allowed_tools = "mcp_tasks-mcp,mcp_atlassian-mcp"
-            claude_cmd.extend(["--allowedTools", allowed_tools])
+            # Format: mcp__<server-name>__* allows all tools from that server
+            # Include default tools (Edit, Bash, Read) as well
+            claude_cmd.extend([
+                "--allowedTools",
+                "Edit", "Bash", "Read",  # Default tools
+                "mcp__tasks-mcp__*",     # All tasks-mcp tools
+                "mcp__atlassian-mcp__*"  # All atlassian-mcp tools
+            ])
             
             # Add initial prompt with context if available
             if initial_prompt:
