@@ -1920,24 +1920,42 @@ When starting a new session, please:
             console.print("\n[bold green]Starting Claude agent session...[/bold green]")
             console.print("[dim]Type 'exit' or Ctrl+D to end the session[/dim]\n")
             
-            # Build command with system prompt
-            claude_cmd = ["claude", "--append-system-prompt", system_prompt]
+            # Create temporary file for system prompt
+            # Using a file is more reliable than passing large strings on command line
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+                f.write(system_prompt)
+                system_prompt_file = f.name
             
-            # Get all allowed tools (tasks-mcp tools are known, atlassian-mcp discovered)
-            allowed_tools = get_allowed_tools()
-            claude_cmd.append("--allowedTools")
-            claude_cmd.extend(allowed_tools)
-            
-            # Add initial prompt with context if available
-            if initial_prompt:
-                claude_cmd.append(initial_prompt)
-            
-            subprocess.run(
-                claude_cmd,
-                cwd=str(working_dir),
-                env=env,
-                check=False
-            )
+            try:
+                # Build command with system prompt file
+                claude_cmd = ["claude", "--append-system-prompt-file", system_prompt_file]
+                
+                # Get all allowed tools (tasks-mcp tools are known, atlassian-mcp discovered)
+                allowed_tools = get_allowed_tools()
+                claude_cmd.append("--allowedTools")
+                claude_cmd.extend(allowed_tools)
+                
+                # Add initial prompt with context if available
+                if initial_prompt:
+                    claude_cmd.append(initial_prompt)
+                
+                # Debug: Print the full command before running
+                console.print("\n[dim]Debug - Full claude command:[/dim]")
+                console.print(f"[dim]{' '.join(repr(arg) for arg in claude_cmd)}[/dim]\n")
+                console.print(f"[dim]System prompt file: {system_prompt_file}[/dim]\n")
+                
+                subprocess.run(
+                    claude_cmd,
+                    cwd=str(working_dir),
+                    env=env,
+                    check=False
+                )
+            finally:
+                # Clean up temporary file
+                try:
+                    Path(system_prompt_file).unlink()
+                except Exception:
+                    pass  # Best effort cleanup
             
             console.print("\n[green]✓[/green] Claude session ended")
         except Exception as e:
