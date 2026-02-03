@@ -177,7 +177,7 @@ class TaskCreationForm(BaseModel):
         default="medium", description="Task priority"
     )
     due_date: str = Field(default="", description="Due date in YYYY-MM-DD format (optional)")
-    jira_issues: str = Field(default="", description="JIRA issue keys, comma-separated (e.g., SRE-1234,DEVOPS-5678) (optional)")
+    jira_issues: str = Field(default="", description="JIRA issue keys as CSV list (e.g., 'SRE-1234,DEVOPS-5678'). No spaces around commas. Multiple issues can be linked to one task. (optional)")
     tags: str = Field(default="", description="Tags for categorization, comma-separated (e.g., backend,api,bug-fix) (optional)")
 
 
@@ -193,7 +193,7 @@ class TaskUpdateForm(BaseModel):
         default="", description="New status: todo, in_progress, done, cancelled (leave empty to keep current)"
     )
     due_date: str = Field(default="", description="New due date YYYY-MM-DD (leave empty to keep current)")
-    jira_issues: str = Field(default="", description="New JIRA issues (comma-separated) (leave empty to keep current)")
+    jira_issues: str = Field(default="", description="New JIRA issues as CSV list (e.g., 'SRE-1234,DEVOPS-5678'). No spaces. Leave empty to keep current. (optional)")
     tags: str = Field(default="", description="New tags (comma-separated) (leave empty to keep current)")
 
 
@@ -403,7 +403,7 @@ def create_task(
         status: Initial status (todo, in_progress, done)
         due_date: Due date in YYYY-MM-DD format
         tags: List of tags for organization
-        jira_issues: Comma-separated JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678")
+        jira_issues: Comma-separated (CSV) JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678"). No spaces around commas. Can link multiple JIRA issues to one task.
         profile: Database profile to use (default, dev, test)
     """
     service = get_service(profile)
@@ -565,7 +565,7 @@ def update_task(
         status: New status
         due_date: New due date in YYYY-MM-DD format
         tags: New tags
-        jira_issues: New JIRA issues (comma-separated)
+        jira_issues: New JIRA issues as CSV list (comma-separated, no spaces). Format: "KEY-1234,KEY-5678"
         profile: Database profile to use (default, dev, test)
     """
     try:
