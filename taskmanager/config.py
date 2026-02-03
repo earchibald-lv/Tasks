@@ -13,12 +13,51 @@ import os
 import subprocess
 import sys
 import tomllib  # Python 3.11+ standard library
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import tomli_w
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def get_system_timezone() -> str:
+    """Auto-detect the system's local timezone using IANA timezone names.
+    
+    Returns:
+        str: IANA timezone name (e.g., 'America/Los_Angeles')
+    """
+    try:
+        import time
+        
+        # Map common timezone abbreviations to IANA names
+        tz_map = {
+            'PST': 'America/Los_Angeles',
+            'PDT': 'America/Los_Angeles',
+            'EST': 'America/New_York',
+            'EDT': 'America/New_York',
+            'CST': 'America/Chicago',
+            'CDT': 'America/Chicago',
+            'MST': 'America/Denver',
+            'MDT': 'America/Denver',
+            'GMT': 'UTC',
+            'BST': 'Europe/London',
+            'CET': 'Europe/Paris',
+            'CEST': 'Europe/Paris',
+            'UTC': 'UTC',
+        }
+        
+        # Get local timezone abbreviation
+        tz_abbr = time.tzname[time.daylight]
+        
+        # Return mapped IANA name or UTC as fallback
+        return tz_map.get(tz_abbr, 'UTC')
+        
+    except Exception:
+        # Fallback to UTC if detection fails
+        return "UTC"
 
 
 def is_onepassword_reference(value: str | None) -> bool:
@@ -180,7 +219,7 @@ class Settings(BaseSettings):
     profile: str = Field(default="default", description="Active profile (default, dev, test)")
     
     # Timezone
-    timezone: str = Field(default="UTC", description="Local timezone for time-aware operations (IANA timezone name, e.g., America/New_York)")
+    timezone: str = Field(default_factory=get_system_timezone, description="Local timezone for time-aware operations (auto-detected, IANA timezone name)")
 
     # Configuration sections
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
