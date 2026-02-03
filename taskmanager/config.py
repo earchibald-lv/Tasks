@@ -6,6 +6,7 @@ This module provides centralized configuration using Pydantic Settings with:
 - CLI flag overrides
 - Profile system (default, dev, test)
 - Path token expansion ({config}, {home}, {data})
+- 1Password secret references (op://...) with runtime resolution
 """
 
 import os
@@ -18,6 +19,59 @@ from typing import Any
 import tomli_w
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def is_onepassword_reference(value: str | None) -> bool:
+    """Check if a value is a 1Password secret reference.
+    
+    Args:
+        value: The value to check
+        
+    Returns:
+        bool: True if value looks like op://...
+    """
+    return value is not None and isinstance(value, str) and value.startswith("op://")
+
+
+def resolve_onepassword_reference(reference: str) -> str | None:
+    """Resolve a 1Password secret reference to its actual value.
+    
+    Args:
+        reference: The 1Password reference (e.g., op://private/jira/token)
+        
+    Returns:
+        str | None: The resolved secret value, or None if resolution fails
+    """
+    if not is_onepassword_reference(reference):
+        return reference
+    
+    try:
+        result = subprocess.run(
+            ["op", "read", reference, "--no-newline"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True
+        )
+        return result.stdout.strip() if result.stdout else None
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError):
+        # Return None if 1Password resolution fails
+        # The calling code can decide how to handle this
+        return None
+
+
+def resolve_config_value(value: str | None) -> str | None:
+    """Resolve a config value, handling 1Password references.
+    
+    Args:
+        value: The config value (may be a 1Password reference or plain value)
+        
+    Returns:
+        str | None: The resolved value, or the original if not a reference
+    """
+    if is_onepassword_reference(value):
+        return resolve_onepassword_reference(value)
+    return value
 
 
 class DatabaseProfiles(BaseModel):
@@ -64,10 +118,39 @@ class McpConfig(BaseModel):
     transport: str = Field(default="stdio", description="MCP transport protocol")
 
 
-class JiraConfig(BaseModel):
-    """JIRA integration configuration."""
+class AtlassianConfig(BaseModel):
+    """Atlassian (JIRA & Confluence) integration configuration.
+    
+    Supports 1Password secret references for all credential fields.
+    Example: jira_token = "op://private/jira/token"
+    """
 
-    jira_url: str | None = Field(default=None, description="Base JIRA URL (e.g., https://jira.company.com)")
+    jira_url: str | None = Field(default=None, description="Base JIRA URL or 1Password reference (e.g., https://jira.company.com or op://private/jira/url)")
+    jira_username: str | None = Field(default=None, description="JIRA username/email or 1Password reference")
+    jira_token: str | None = Field(default=None, description="JIRA personal access token or 1Password reference")
+    jira_ssl_verify: bool = Field(default=True, description="Verify SSL certificates for JIRA")
+    
+    confluence_url: str | None = Field(default=None, description="Base Confluence URL or 1Password reference")
+    confluence_username: str | None = Field(default=None, description="Confluence username/email or 1Password reference")
+    confluence_token: str | None = Field(default=None, description="Confluence personal access token or 1Password reference")
+    confluence_ssl_verify: bool = Field(default=True, description="Verify SSL certificates for Confluence")
+    
+    def resolve_secrets(self) -> "AtlassianConfig":
+        """Resolve any 1Password secret references in this configuration.
+        
+        Returns:
+            AtlassianConfig: A new config with all 1Password references resolved
+        """
+        return AtlassianConfig(
+            jira_url=resolve_config_value(self.jira_url),
+            jira_username=resolve_config_value(self.jira_username),
+            jira_token=resolve_config_value(self.jira_token),
+            jira_ssl_verify=self.jira_ssl_verify,
+            confluence_url=resolve_config_value(self.confluence_url),
+            confluence_username=resolve_config_value(self.confluence_username),
+            confluence_token=resolve_config_value(self.confluence_token),
+            confluence_ssl_verify=self.confluence_ssl_verify,
+        )
 
 
 class Settings(BaseSettings):
@@ -101,7 +184,7 @@ class Settings(BaseSettings):
     defaults: DefaultsConfig = Field(default_factory=DefaultsConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
-    jira: JiraConfig = Field(default_factory=JiraConfig)
+    atlassian: AtlassianConfig = Field(default_factory=AtlassianConfig)
 
     # Legacy single database URL (for backward compatibility)
     database_url: str | None = Field(default=None, description="Direct database URL override")
@@ -298,8 +381,15 @@ def create_default_config(path: Path) -> None:
             "server_name": "tasks_mcp",
             "transport": "stdio",
         },
-        "jira": {
-            "jira_url": None,  # Set to your JIRA URL, e.g., "https://jira.company.com"
+        "atlassian": {
+            "jira_url": None,  # Set to JIRA URL or 1Password ref: "op://private/jira/url" or "https://jira.company.com"
+            "jira_username": None,  # Set to username or 1Password ref: "op://private/jira/username"
+            "jira_token": None,  # Set to token or 1Password ref: "op://private/jira/token"
+            "jira_ssl_verify": True,  # Set to False to disable SSL verification
+            "confluence_url": None,  # Set to Confluence URL or 1Password ref: "op://private/confluence/url"
+            "confluence_username": None,  # Set to username or 1Password ref: "op://private/confluence/username"
+            "confluence_token": None,  # Set to token or 1Password ref: "op://private/confluence/token"
+            "confluence_ssl_verify": True,  # Set to False to disable SSL verification
         },
     }
 
@@ -331,7 +421,7 @@ def get_settings() -> Settings:
             flat_config.update(toml_config["general"])
         
         # Pass nested sections as-is
-        for key in ["database", "defaults", "logging", "mcp", "jira"]:
+        for key in ["database", "defaults", "logging", "mcp", "atlassian"]:
             if key in toml_config:
                 flat_config[key] = toml_config[key]
 

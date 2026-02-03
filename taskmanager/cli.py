@@ -99,7 +99,7 @@ def format_task_as_markdown(task, service, settings) -> str:
 
     # JIRA issues with links
     if task.jira_issues:
-        jira_links = service.format_jira_links(task.jira_issues, settings.jira.jira_url)
+        jira_links = service.format_jira_links(task.jira_issues, settings.atlassian.jira_url)
         if jira_links:
             lines.append("**JIRA Issues:**")
             for issue_key, url in jira_links:
@@ -503,7 +503,7 @@ def show_task(
 
         # JIRA issues with clickable links
         if task.jira_issues:
-            jira_links = service.format_jira_links(task.jira_issues, settings.jira.jira_url)
+            jira_links = service.format_jira_links(task.jira_issues, settings.atlassian.jira_url)
             if jira_links:
                 console.print(f"[bold]JIRA Issues:[/bold]")
                 for issue_key, url in jira_links:
@@ -1576,9 +1576,9 @@ def chat_command(
     
     Opens an interactive Claude chat session with MCP servers configured:
     - tasks-mcp: For task management operations
-    - atlassian-mcp: For JIRA/Confluence integration (with 1Password credentials)
+    - atlassian-mcp: For JIRA/Confluence integration (with configured credentials)
     
-    Uses 1Password CLI to securely retrieve JIRA API tokens.
+    Uses credentials from ~/.taskmanager/config.toml for secure authentication.
     If a task ID is provided, includes that task's context in the conversation.
     """
     try:
@@ -1625,53 +1625,49 @@ def chat_command(
             }
         }
         
-        # Add atlassian-mcp with 1Password credential retrieval
-        try:
-            # Try to retrieve JIRA URL and tokens from 1Password
-            jira_url_cmd = ["op", "read", "op://private/jira/url", "--no-newline"]
-            jira_user_cmd = ["op", "read", "op://private/jira/user", "--no-newline"]
-            jira_token_cmd = ["op", "read", "op://private/jira/token", "--no-newline"]
-            
-            try:
-                jira_url = subprocess.run(jira_url_cmd, capture_output=True, text=True, timeout=5).stdout.strip()
-                jira_user = subprocess.run(jira_user_cmd, capture_output=True, text=True, timeout=5).stdout.strip()
-                jira_token = subprocess.run(jira_token_cmd, capture_output=True, text=True, timeout=5).stdout.strip()
-                
-                if jira_url and jira_token:
-                    # Configure atlassian-mcp with credentials from 1Password
-                    mcp_servers["atlassian"] = {
-                        "command": "python",
-                        "args": ["-m", "mcp_atlassian"],
-                        "env": {
-                            "JIRA_URL": jira_url,
-                            "JIRA_USER": jira_user,
-                            "JIRA_TOKEN": jira_token
-                        }
-                    }
-                    console.print("[green]✓[/green] JIRA credentials loaded from 1Password")
-                else:
-                    console.print("[yellow]Warning:[/yellow] Could not retrieve JIRA credentials from 1Password")
-                    console.print("  Expected paths: op://private/jira/url, op://private/jira/user, op://private/jira/token")
-                    console.print("  atlassian-mcp will not be available")
-            except subprocess.TimeoutExpired:
-                console.print("[yellow]Warning:[/yellow] 1Password CLI timeout - skipping atlassian-mcp")
-            except FileNotFoundError:
-                console.print("[yellow]Warning:[/yellow] 1Password CLI ('op') not found - skipping credential retrieval")
-                console.print("  Install with: brew install 1password-cli")
-                console.print("  Then configure: op://private/jira/url, op://private/jira/user, op://private/jira/token")
-        except Exception as e:
-            console.print(f"[yellow]Warning:[/yellow] Could not load 1Password credentials: {e}")
+        # Add atlassian-mcp with credentials from config file
+        atlassian_config = settings.atlassian.resolve_secrets()
         
-        # Create a temporary MCP config file
-        mcp_config = {"mcpServers": mcp_servers}
+        # Check if we have atlassian credentials configured
+        if atlassian_config.jira_url and atlassian_config.jira_token:
+            atlassian_env = {
+                "JIRA_URL": atlassian_config.jira_url,
+                "JIRA_SSL_VERIFY": str(atlassian_config.jira_ssl_verify).lower(),
+            }
+            
+            if atlassian_config.jira_username:
+                atlassian_env["JIRA_USERNAME"] = atlassian_config.jira_username
+            if atlassian_config.jira_token:
+                atlassian_env["JIRA_PERSONAL_TOKEN"] = atlassian_config.jira_token
+            
+            if atlassian_config.confluence_url:
+                atlassian_env["CONFLUENCE_URL"] = atlassian_config.confluence_url
+            if atlassian_config.confluence_username:
+                atlassian_env["CONFLUENCE_USERNAME"] = atlassian_config.confluence_username
+            if atlassian_config.confluence_token:
+                atlassian_env["CONFLUENCE_PERSONAL_TOKEN"] = atlassian_config.confluence_token
+            if atlassian_config.confluence_url:
+                atlassian_env["CONFLUENCE_SSL_VERIFY"] = str(atlassian_config.confluence_ssl_verify).lower()
+            
+            mcp_servers["atlassian"] = {
+                "command": "uvx",
+                "args": ["--native-tls", "mcp-atlassian"],
+                "env": atlassian_env
+            }
+            console.print("[green]✓[/green] Atlassian credentials loaded from configuration")
+        else:
+            console.print("[yellow]Warning:[/yellow] Atlassian credentials not configured")
+            console.print("  Configure in ~/.taskmanager/config.toml under [atlassian]")
+            console.print("  Required: jira_url, jira_token")
+            console.print("  Optional: jira_username, confluence_url, confluence_username, confluence_token")
         
         # Set environment for claude CLI
-        env["MCP_SERVERS"] = json.dumps(mcp_config)
+        env["MCP_SERVERS"] = json.dumps(mcp_servers)
         
         # Build context prompt for the claude session
-        system_context = "You are an expert at managing tasks and JIRA tickets using the available MCP tools.\n"
+        system_context = "You are an expert at managing tasks and JIRA/Confluence tickets using the available MCP tools.\n"
         system_context += "You can create, update, complete, and delete tasks.\n"
-        system_context += "You can browse and work with JIRA tickets when credentials are available.\n"
+        system_context += "You can browse and work with JIRA tickets and Confluence when credentials are configured.\n"
         system_context += "Always ask for confirmation before making destructive changes.\n"
         
         if task_id:
@@ -1689,11 +1685,6 @@ def chat_command(
                 system_context += f"Related JIRA: {task.jira_issues}\n"
             system_context += f"Workspace: {working_dir}\n"
         
-        # Write system prompt to temp file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write(system_context)
-            system_prompt_file = f.name
-        
         try:
             # Launch claude CLI with context
             console.print("\n[bold green]Starting Claude agent session...[/bold green]")
@@ -1707,12 +1698,9 @@ def chat_command(
             )
             
             console.print("\n[green]✓[/green] Claude session ended")
-        finally:
-            # Clean up temp file
-            try:
-                Path(system_prompt_file).unlink()
-            except Exception:
-                pass
+        except Exception as e:
+            console.print(f"[red]Error:[/red] {str(e)}")
+            raise typer.Exit(1)
         
     except ValueError as e:
         console.print(f"[red]Error:[/red] {str(e)}", style="bold")
