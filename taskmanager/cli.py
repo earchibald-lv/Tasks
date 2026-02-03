@@ -1850,16 +1850,15 @@ The atlassian-mcp server provides JIRA and Confluence integration (when credenti
 
 When starting a new session, please:
 
-1. **Establish time awareness:**
-   - FIRST, call `get_current_time()` to get the current date and time
-   - Announce it clearly: "It's [day], [date] at [time] [timezone]"
-   - Use this context for all deadline discussions and scheduling
-   - Note if it's a weekend or special day that might affect work
+1. **Be aware of current time:**
+   - The current date and time are provided in the initial context
+   - Use this for deadline discussions and deadline-aware operations
+   - Check for overdue tasks by comparing due dates to today's date
 
 2. **Understand the current profile context:**
    - List recent tasks to understand what's in flight
-   - Check for overdue tasks that need attention (compare due dates to current time)
-   - Identify the current workspace location
+   - Identify high-priority or urgent items
+   - Check if there are related JIRA issues
 
 3. **Assess the work environment:**
    - Note which tasks are in progress vs pending
