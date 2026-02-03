@@ -41,6 +41,68 @@ def get_service(profile: str = DEFAULT_PROFILE) -> TaskService:
     return TaskService(repository)
 
 
+def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
+    """Convert MCP-friendly status string to TaskStatus enum.
+    
+    MCP tools use simplified terminology:
+    - "todo" → PENDING
+    - "in_progress" → IN_PROGRESS  
+    - "done" → COMPLETED
+    - "cancelled" → CANCELLED (direct mapping)
+    - "archived" → ARCHIVED (direct mapping)
+    
+    Args:
+        mcp_status: Status string from MCP tool (todo, in_progress, done, cancelled, archived)
+        
+    Returns:
+        TaskStatus: Corresponding enum value
+        
+    Raises:
+        ValueError: If status string is invalid
+    """
+    status_map = {
+        "todo": TaskStatus.PENDING,
+        "pending": TaskStatus.PENDING,  # Allow direct use too
+        "in_progress": TaskStatus.IN_PROGRESS,
+        "done": TaskStatus.COMPLETED,
+        "completed": TaskStatus.COMPLETED,  # Allow direct use too
+        "cancelled": TaskStatus.CANCELLED,
+        "archived": TaskStatus.ARCHIVED,
+    }
+    
+    if mcp_status not in status_map:
+        valid = ", ".join(sorted(status_map.keys()))
+        raise ValueError(f"Invalid status '{mcp_status}'. Valid values: {valid}")
+    
+    return status_map[mcp_status]
+
+
+def task_status_to_mcp_status(task_status: TaskStatus) -> str:
+    """Convert TaskStatus enum to MCP-friendly status string.
+    
+    Returns simplified terminology for MCP tools:
+    - PENDING → "todo"
+    - IN_PROGRESS → "in_progress"
+    - COMPLETED → "done"
+    - CANCELLED → "cancelled"
+    - ARCHIVED → "archived"
+    
+    Args:
+        task_status: TaskStatus enum value
+        
+    Returns:
+        str: MCP-friendly status string
+    """
+    reverse_map = {
+        TaskStatus.PENDING: "todo",
+        TaskStatus.IN_PROGRESS: "in_progress",
+        TaskStatus.COMPLETED: "done",
+        TaskStatus.CANCELLED: "cancelled",
+        TaskStatus.ARCHIVED: "archived",
+    }
+    return reverse_map[task_status]
+
+
 def format_task_markdown(task: Task) -> str:
     """Format a task as Markdown."""
     lines = [
@@ -321,7 +383,7 @@ def create_task(
     title: str,
     description: str | None = None,
     priority: Literal["low", "medium", "high"] = "medium",
-    status: Literal["todo", "in_progress", "done"] = "todo",
+    status: Literal["todo", "in_progress", "done", "cancelled", "archived"] = "todo",
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
@@ -362,7 +424,7 @@ def create_task(
         title=title,
         description=description,
         priority=Priority(priority),
-        status=TaskStatus(status),
+        status=mcp_status_to_task_status(status),
         due_date=parsed_due_date,
         tags=tags_str,
         jira_issues=jira_issues,
@@ -373,7 +435,7 @@ def create_task(
 
 @mcp.tool()
 def list_tasks(
-    status: Literal["todo", "in_progress", "done", "all"] = "all",
+    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "all"] = "all",
     priority: Literal["low", "medium", "high", "all"] = "all",
     tag: str | None = None,
     overdue_only: bool = False,
@@ -394,7 +456,7 @@ def list_tasks(
         # Build filters
         filters = {}
         if status != "all":
-            filters["status"] = TaskStatus(status)
+            filters["status"] = mcp_status_to_task_status(status)
         if priority != "all":
             filters["priority"] = Priority(priority)
         if tag:
@@ -482,7 +544,7 @@ def update_task(
     title: str | None = None,
     description: str | None = None,
     priority: Literal["low", "medium", "high"] | None = None,
-    status: Literal["todo", "in_progress", "done"] | None = None,
+    status: Literal["todo", "in_progress", "done", "cancelled", "archived"] | None = None,
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
@@ -516,7 +578,7 @@ def update_task(
         if priority is not None:
             updates["priority"] = Priority(priority)
         if status is not None:
-            updates["status"] = TaskStatus(status)
+            updates["status"] = mcp_status_to_task_status(status)
         if tags is not None:
             updates["tags"] = ",".join(tags) if tags else ""
         if jira_issues is not None:
@@ -898,7 +960,7 @@ def search_all_tasks(
     search_task_fields: bool = True,
     file_pattern: str = "*",
     case_sensitive: bool = False,
-    status_filter: Literal["todo", "in_progress", "done", "all"] = "all",
+    status_filter: Literal["todo", "in_progress", "done", "cancelled", "archived", "all"] = "all",
     profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """Search across all tasks and their workspaces.
 
@@ -925,7 +987,7 @@ def search_all_tasks(
         # Build filters
         filters = {}
         if status_filter != "all":
-            filters["status"] = TaskStatus(status_filter)
+            filters["status"] = mcp_status_to_task_status(status_filter)
 
         # Get all tasks
         tasks, total = service.list_tasks(**filters, limit=100)
