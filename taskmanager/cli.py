@@ -21,7 +21,7 @@ from taskmanager.database import get_session, init_db
 from taskmanager.models import Priority, TaskStatus
 from taskmanager.repository_impl import SQLTaskRepository
 from taskmanager.service import TaskService
-from taskmanager.mcp_discovery import get_allowed_tools
+from taskmanager.mcp_discovery import get_allowed_tools, create_ephemeral_session_dir
 
 # Initialize Typer app
 app = typer.Typer(
@@ -1920,55 +1920,35 @@ When starting a new session, please:
             console.print("\n[bold green]Starting Claude agent session...[/bold green]")
             console.print("[dim]Type 'exit' or Ctrl+D to end the session[/dim]\n")
             
-            # Create temporary file for system prompt
-            # Using a file is more reliable than passing large strings on command line
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-                f.write(system_prompt)
-                system_prompt_file = f.name
+            # Create ephemeral session directory with settings.json
+            session_dir, session_env = create_ephemeral_session_dir(system_prompt)
             
-            # Create temporary file for initial prompt (will be passed via stdin)
-            initial_prompt_file = None
-            if initial_prompt:
-                with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-                    f.write(initial_prompt)
-                    initial_prompt_file = f.name
+            # Merge session environment with existing environment
+            full_env = env.copy()
+            full_env.update(session_env)
             
-            try:
-                # Build command with system prompt file
-                claude_cmd = ["claude", "--append-system-prompt-file", system_prompt_file]
-                
-                # Get all allowed tools (tasks-mcp tools are known, atlassian-mcp discovered)
-                allowed_tools = get_allowed_tools()
-                claude_cmd.append("--allowedTools")
-                claude_cmd.extend(allowed_tools)
-                
-                # Debug: Print the full command before running
-                console.print("\n[dim]Debug - Full claude command:[/dim]")
-                console.print(f"[dim]{' '.join(repr(arg) for arg in claude_cmd)}[/dim]\n")
-                console.print(f"[dim]System prompt file: {system_prompt_file}[/dim]")
-                if initial_prompt_file:
-                    console.print(f"[dim]Initial prompt file (stdin): {initial_prompt_file}[/dim]")
-                console.print()
-                
-                # Run claude with initial prompt via stdin if available
-                stdin_input = None
-                if initial_prompt_file:
-                    with open(initial_prompt_file, 'r') as f:
-                        stdin_input = f.read()
-                
-                subprocess.run(
-                    claude_cmd,
-                    cwd=str(working_dir),
-                    env=env,
-                    input=stdin_input,
-                    text=True,
-                    check=False
-                )
-            finally:
-                # Keep temporary file for debugging - don't clean up
-                pass
+            # Debug: Print session configuration
+            console.print(f"\n[dim]Debug - Ephemeral session directory: {session_dir}[/dim]")
+            console.print(f"[dim]Debug - Settings file: {session_dir}/.claude/settings.json[/dim]")
+            console.print(f"[dim]Debug - CLAUDE_CONFIG_DIR: {session_env['CLAUDE_CONFIG_DIR']}[/dim]")
+            console.print(f"[dim]Debug - CLAUDE_CODE_TMPDIR: {session_env['CLAUDE_CODE_TMPDIR']}[/dim]")
+            console.print()
+            
+            # Build simple claude command (config is in settings.json now)
+            claude_cmd = ["claude"]
+            
+            # Run claude with initial prompt via stdin
+            subprocess.run(
+                claude_cmd,
+                cwd=str(working_dir),
+                env=full_env,
+                input=initial_prompt,
+                text=True,
+                check=False
+            )
             
             console.print("\n[green]✓[/green] Claude session ended")
+            console.print(f"[dim]Session dir preserved for debugging: {session_dir}[/dim]")
         except Exception as e:
             console.print(f"[red]Error:[/red] {str(e)}")
             raise typer.Exit(1)
