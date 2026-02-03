@@ -1712,10 +1712,17 @@ def chat_command(
         # Prepare environment with MCP server configuration
         env = os.environ.copy()
         
+        # Get current profile to ensure MCP server uses the same profile
+        current_profile = settings.profile
+        
         # Build MCP servers configuration for claude CLI
+        # Important: Pass profile to tasks-mcp server so all operations use the correct profile
         mcp_servers = {
             "tasks": {
-                "command": "tasks-mcp"
+                "command": "tasks-mcp",
+                "env": {
+                    "TASKMANAGER_PROFILE": current_profile
+                }
             }
         }
         

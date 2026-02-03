@@ -4,6 +4,7 @@ This module provides an MCP server that exposes task management functionality
 to AI agents through tools with User Elicitation for interactive forms.
 """
 
+import os
 from datetime import date, datetime
 from typing import Literal
 
@@ -18,12 +19,15 @@ from taskmanager.service import TaskService
 # Initialize FastMCP server
 mcp = FastMCP("Task Manager", version="0.1.0")
 
+# Get default profile from environment variable or use "default"
+DEFAULT_PROFILE = os.environ.get("TASKMANAGER_PROFILE", "default")
+
 # Initialize all profile databases on startup
 for profile in ["default", "dev", "test"]:
     init_db(profile)
 
 
-def get_service(profile: str = "default") -> TaskService:
+def get_service(profile: str = DEFAULT_PROFILE) -> TaskService:
     """Create and return a TaskService instance for a specific profile.
 
     Args:
@@ -146,7 +150,7 @@ class TaskDeletionConfirmation(BaseModel):
 @mcp.tool()
 async def create_task_interactive(
     ctx: Context,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Create a new task with an interactive form.
 
@@ -198,7 +202,7 @@ async def create_task_interactive(
 async def update_task_interactive(
     ctx: Context,
     task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Update an existing task with an interactive form showing current values.
 
@@ -271,7 +275,7 @@ async def update_task_interactive(
 async def delete_task_interactive(
     ctx: Context,
     task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Delete a task with confirmation dialog.
 
@@ -321,7 +325,7 @@ def create_task(
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Create a new task (non-interactive version).
 
@@ -373,7 +377,7 @@ def list_tasks(
     priority: Literal["low", "medium", "high", "all"] = "all",
     tag: str | None = None,
     overdue_only: bool = False,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """List tasks with optional filtering.
 
@@ -454,7 +458,7 @@ def list_tasks(
 @mcp.tool()
 def get_task(
     task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Get detailed information about a specific task.
 
@@ -482,7 +486,7 @@ def update_task(
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Update a task's fields (non-interactive version).
 
@@ -542,7 +546,7 @@ def update_task(
 @mcp.tool()
 def complete_task(
     task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Mark a task as completed.
 
@@ -563,7 +567,7 @@ def complete_task(
 @mcp.tool()
 def delete_task(
     task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Delete a task immediately without confirmation (non-interactive version).
 
@@ -595,7 +599,7 @@ def delete_task(
 def create_workspace(
     task_id: int,
     initialize_git: bool = True,
-    profile: Literal["default", "dev", "test"] = "default",
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
 ) -> str:
     """Create a persistent workspace for a task.
 
@@ -642,7 +646,7 @@ You can now use this workspace for task-specific file operations."""
 
 @mcp.tool()
 def get_workspace_info(task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """Get information about a task's workspace.
 
     Returns workspace metadata including path, creation time, and git status.
@@ -676,7 +680,7 @@ This workspace provides a sandboxed environment for task-specific operations."""
 
 @mcp.tool()
 def get_workspace_path(task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """Get the filesystem path to a task's workspace.
 
     Returns the absolute path that can be used for file operations.
@@ -701,7 +705,7 @@ def get_workspace_path(task_id: int,
 
 @mcp.tool()
 def ensure_workspace(task_id: int, initialize_git: bool = True,
-    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """Ensure a workspace exists for a task, creating it if necessary.
 
     This is a convenience tool that checks if a workspace exists and creates
@@ -746,7 +750,7 @@ def ensure_workspace(task_id: int, initialize_git: bool = True,
 
 @mcp.tool()
 def delete_workspace(task_id: int,
-    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """Delete a task's workspace and all its contents.
 
     ⚠️ WARNING: This permanently deletes all files in the workspace directory.
@@ -783,7 +787,7 @@ def search_workspace(
     file_pattern: str = "*",
     case_sensitive: bool = False,
     max_results: int = 50,
-    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """Search for content within a task's workspace.
 
     Uses fast text search to find files and content matching your query.
@@ -895,7 +899,7 @@ def search_all_tasks(
     file_pattern: str = "*",
     case_sensitive: bool = False,
     status_filter: Literal["todo", "in_progress", "done", "all"] = "all",
-    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """Search across all tasks and their workspaces.
 
     Performs a comprehensive search across:
@@ -1111,7 +1115,7 @@ def list_workspace_files(
     task_id: int,
     subdirectory: str = "",
     file_pattern: str = "*",
-    profile: Literal["default", "dev", "test"] = "default",) -> str:
+    profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,) -> str:
     """List files in a task's workspace.
 
     Browse the contents of a workspace directory to see what files are available.
