@@ -162,15 +162,21 @@ def get_mcp_servers_config() -> Dict[str, Any]:
     return servers
 
 
-def create_ephemeral_session_dir(system_prompt: str) -> tuple[Path, Dict[str, str]]:
+def create_ephemeral_session_dir(system_prompt: str, working_dir: str = None) -> tuple[Path, Dict[str, str]]:
     """Create an ephemeral Claude session directory with configuration.
     
     This creates a unique temporary directory with:
-    - settings.json with system prompt and MCP server config
+    - .claude/settings.json with permissions and preferences (merged with global)
+    - .mcp.json with MCP server configurations (project-level)
     - Proper directory structure for Claude
+    
+    When CLAUDE_CONFIG_DIR is set, Claude Code enters "isolated mode" and ignores
+    the global ~/.claude.json. To preserve user preferences (theme, model, env vars),
+    we load the global ~/.claude/settings.json and merge it with our session config.
     
     Args:
         system_prompt: The system prompt to inject as globalInstructions.
+        working_dir: The working directory for the session (for .mcp.json placement).
         
     Returns:
         tuple[Path, Dict[str, str]]: 
@@ -190,26 +196,86 @@ def create_ephemeral_session_dir(system_prompt: str) -> tuple[Path, Dict[str, st
     tmp_dir = temp_dir / "tmp"
     tmp_dir.mkdir(parents=True, exist_ok=True)
     
-    # Build settings.json
-    settings = {
+    # Load user's global configuration files
+    # ~/.claude.json contains app state/history/OAuth sessions
+    # ~/.claude/settings.json contains user-defined settings (theme, model, env, permissions)
+    # We need to bring both into the ephemeral session
+    global_settings_path = Path.home() / ".claude" / "settings.json"
+    global_claude_json_path = Path.home() / ".claude.json"
+    
+    base_settings = {}
+    claude_json = {}
+    
+    # First load ~/.claude.json (app state/OAuth/history)
+    if global_claude_json_path.exists():
+        try:
+            with open(global_claude_json_path, 'r') as f:
+                claude_json = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    
+    # Load ~/.claude/settings.json (user settings)
+    if global_settings_path.exists():
+        try:
+            with open(global_settings_path, 'r') as f:
+                base_settings = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    
+    # Build settings.json by merging global settings with our session config
+    # Our settings take precedence for critical keys
+    settings = {**base_settings}  # Start with global settings
+    
+    # Override/add our session-specific settings
+    settings.update({
         "globalInstructions": system_prompt,
-        "mcpServers": get_mcp_servers_config(),
+        # Auto-approve all MCP servers defined in .mcp.json files
+        "enableAllProjectMcpServers": True,
+        # Also list specific servers for explicit approval
+        "enabledMcpjsonServers": list(get_mcp_servers_config().keys()),
         "hasTrustDialogAccepted": True,
         "hasCompletedProjectOnboarding": True,
-        "autoApproveTools": get_auto_approve_tools(),
-        "theme": "dark"
-    }
+    })
+    
+    # Merge permissions - combine global permissions with ours
+    global_permissions = base_settings.get("permissions", {})
+    global_allow = global_permissions.get("allow", [])
+    our_allow = get_auto_approve_tools()
+    # Combine both lists, removing duplicates while preserving order
+    combined_allow = list(dict.fromkeys(global_allow + our_allow))
+    settings["permissions"] = {**global_permissions, "allow": combined_allow}
     
     # Write settings.json
     settings_file = claude_dir / "settings.json"
     with open(settings_file, 'w') as f:
         json.dump(settings, f, indent=2)
     
+    # Write .claude.json with app state from global (OAuth, history, etc.)
+    # Merge with our session-specific flags
+    session_claude_json = {**claude_json}
+    session_claude_json.update({
+        "hasTrustDialogAccepted": True,
+        "hasCompletedProjectOnboarding": True,
+    })
+    claude_json_file = temp_dir / ".claude.json"
+    with open(claude_json_file, 'w') as f:
+        json.dump(session_claude_json, f, indent=2)
+    
+    # Write .mcp.json with MCP server configurations
+    # This goes in the config dir root (project-level config)
+    mcp_config = {
+        "mcpServers": get_mcp_servers_config()
+    }
+    mcp_file = temp_dir / ".mcp.json"
+    with open(mcp_file, 'w') as f:
+        json.dump(mcp_config, f, indent=2)
+    
     # Prepare environment variables
+    # CLAUDE_CONFIG_DIR puts Claude in isolated mode, so we must pre-seed
+    # settings.json with the user's preferences (theme, model, env, etc.)
     env_vars = {
         "CLAUDE_CONFIG_DIR": str(temp_dir),
         "CLAUDE_CODE_TMPDIR": str(tmp_dir),
-        "HOME": str(temp_dir),  # Redirect ~/.claude.json as well
     }
     
     return temp_dir, env_vars

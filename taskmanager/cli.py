@@ -1927,12 +1927,26 @@ When starting a new session, please:
             full_env = env.copy()
             full_env.update(session_env)
             
-            # Debug: Print session configuration
-            console.print(f"\n[dim]Debug - Ephemeral session directory: {session_dir}[/dim]")
-            console.print(f"[dim]Debug - Settings file: {session_dir}/.claude/settings.json[/dim]")
-            console.print(f"[dim]Debug - CLAUDE_CONFIG_DIR: {session_env['CLAUDE_CONFIG_DIR']}[/dim]")
-            console.print(f"[dim]Debug - CLAUDE_CODE_TMPDIR: {session_env['CLAUDE_CODE_TMPDIR']}[/dim]")
-            console.print()
+            # Debug: Copy config files to /tmp for inspection
+            import json
+            import shutil
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_dir = Path(f"/tmp/tasks-chat-debug-{timestamp}")
+            debug_dir.mkdir(exist_ok=True)
+            
+            # Copy the config files
+            shutil.copy(f"{session_dir}/.claude/settings.json", debug_dir / "settings.json")
+            shutil.copy(f"{session_dir}/.mcp.json", debug_dir / "mcp.json")
+            
+            # Write env vars to a file
+            with open(debug_dir / "env.txt", 'w') as f:
+                f.write(f"Session directory: {session_dir}\n")
+                f.write(f"CLAUDE_CONFIG_DIR: {session_env['CLAUDE_CONFIG_DIR']}\n")
+                f.write(f"CLAUDE_CODE_TMPDIR: {session_env.get('CLAUDE_CODE_TMPDIR', 'not set')}\n")
+                f.write(f"HOME: {session_env.get('HOME', 'not overridden')}\n")
+            
+            console.print(f"[dim]Debug config copied to: {debug_dir}[/dim]\n")
             
             # Build simple claude command (config is in settings.json now)
             claude_cmd = ["claude"]
@@ -1948,7 +1962,8 @@ When starting a new session, please:
             )
             
             console.print("\n[green]✓[/green] Claude session ended")
-            console.print(f"[dim]Session dir preserved for debugging: {session_dir}[/dim]")
+            console.print(f"[dim]Debug config at: {debug_dir}[/dim]")
+            console.print(f"[dim]Session dir: {session_dir}[/dim]")
         except Exception as e:
             console.print(f"[red]Error:[/red] {str(e)}")
             raise typer.Exit(1)
