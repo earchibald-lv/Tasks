@@ -171,7 +171,7 @@ class TaskCreationForm(BaseModel):
 
     title: str = Field(description="Task title (required)")
     description: str = Field(default="", description="Detailed description (optional)")
-    priority: Literal["low", "medium", "high"] = Field(
+    priority: Literal["low", "medium", "high", "urgent"] = Field(
         default="medium", description="Task priority"
     )
     due_date: str = Field(default="", description="Due date in YYYY-MM-DD format (optional)")
@@ -382,7 +382,7 @@ async def delete_task_interactive(
 def create_task(
     title: str,
     description: str | None = None,
-    priority: Literal["low", "medium", "high"] = "medium",
+    priority: Literal["low", "medium", "high", "urgent"] = "medium",
     status: Literal["todo", "in_progress", "done", "cancelled", "archived"] = "todo",
     due_date: str | None = None,
     tags: list[str] | None = None,
@@ -436,7 +436,7 @@ def create_task(
 @mcp.tool()
 def list_tasks(
     status: Literal["todo", "in_progress", "done", "cancelled", "archived", "all"] = "all",
-    priority: Literal["low", "medium", "high", "all"] = "all",
+    priority: Literal["low", "medium", "high", "urgent", "all"] = "all",
     tag: str | None = None,
     overdue_only: bool = False,
     profile: Literal["default", "dev", "test"] = DEFAULT_PROFILE,
@@ -543,7 +543,7 @@ def update_task(
     task_id: int,
     title: str | None = None,
     description: str | None = None,
-    priority: Literal["low", "medium", "high"] | None = None,
+    priority: Literal["low", "medium", "high", "urgent"] | None = None,
     status: Literal["todo", "in_progress", "done", "cancelled", "archived"] | None = None,
     due_date: str | None = None,
     tags: list[str] | None = None,
