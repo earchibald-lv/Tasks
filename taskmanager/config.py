@@ -178,6 +178,9 @@ class Settings(BaseSettings):
 
     # Profile system
     profile: str = Field(default="default", description="Active profile (default, dev, test)")
+    
+    # Timezone
+    timezone: str = Field(default="UTC", description="Local timezone for time-aware operations (IANA timezone name, e.g., America/New_York)")
 
     # Configuration sections
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
@@ -200,6 +203,17 @@ class Settings(BaseSettings):
         if v not in valid_profiles:
             raise ValueError(f"Invalid profile '{v}'. Must be one of: {valid_profiles}")
         return v
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        """Validate timezone name."""
+        from zoneinfo import ZoneInfo
+        try:
+            ZoneInfo(v)  # Try to create a ZoneInfo to validate
+            return v
+        except Exception as e:
+            raise ValueError(f"Invalid timezone '{v}'. Must be valid IANA timezone name (e.g., UTC, America/New_York): {e}")
 
     def get_config_dir(self) -> Path:
         """Get the configuration directory.

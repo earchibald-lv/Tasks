@@ -1584,9 +1584,10 @@ def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
     from zoneinfo import ZoneInfo
     from taskmanager.models import TaskStatus, Priority
     
-    # Get current time for temporal context
-    now = datetime.now(ZoneInfo("UTC"))
-    current_time_str = now.strftime("%A, %B %d, %Y at %I:%M %p UTC")
+    # Get current time in user's local timezone
+    tz = ZoneInfo(settings.timezone)
+    now = datetime.now(tz)
+    current_time_str = now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
     
     # Gather task statistics
     all_tasks, _ = service.list_tasks(limit=100)  # Get up to 100 tasks for overview
@@ -1624,6 +1625,7 @@ def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
     context_parts.append(f"**Current Time:** {current_time_str}")
     context_parts.append(f"**Today's Date:** {now.strftime('%Y-%m-%d')}")
     context_parts.append(f"**Day of Week:** {now.strftime('%A')}")
+    context_parts.append(f"**Timezone:** {settings.timezone}")
     context_parts.append(f"**Weekend:** {'Yes' if now.weekday() >= 5 else 'No'}\n")
     context_parts.append(f"**Profile:** {profile_name}")
     context_parts.append(f"**Total tasks:** {len(all_tasks)}\n")
