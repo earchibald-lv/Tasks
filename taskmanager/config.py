@@ -167,6 +167,7 @@ class AtlassianConfig(BaseModel):
     jira_url: str | None = Field(default=None, description="Base JIRA URL or 1Password reference (e.g., https://jira.company.com or op://private/jira/url)")
     jira_username: str | None = Field(default=None, description="JIRA username/email or 1Password reference")
     jira_token: str | None = Field(default=None, description="JIRA personal access token or 1Password reference")
+    jira_user_identifier: str | None = Field(default=None, description="JIRA user identifier for lookups (email, username, or account ID). If not set, uses jira_username.")
     jira_ssl_verify: bool = Field(default=True, description="Verify SSL certificates for JIRA")
     
     confluence_url: str | None = Field(default=None, description="Base Confluence URL or 1Password reference")
@@ -184,6 +185,7 @@ class AtlassianConfig(BaseModel):
             jira_url=resolve_config_value(self.jira_url),
             jira_username=resolve_config_value(self.jira_username),
             jira_token=resolve_config_value(self.jira_token),
+            jira_user_identifier=resolve_config_value(self.jira_user_identifier),
             jira_ssl_verify=self.jira_ssl_verify,
             confluence_url=resolve_config_value(self.confluence_url),
             confluence_username=resolve_config_value(self.confluence_username),

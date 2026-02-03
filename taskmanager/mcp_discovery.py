@@ -170,6 +170,11 @@ def get_mcp_servers_config() -> Dict[str, Any]:
                 atlassian_env["JIRA_USERNAME"] = atlassian_config.jira_username
             if atlassian_config.jira_token:
                 atlassian_env["JIRA_PERSONAL_TOKEN"] = atlassian_config.jira_token
+            # Set user identifier for lookups (defaults to username if not specified)
+            if atlassian_config.jira_user_identifier:
+                atlassian_env["JIRA_USER_IDENTIFIER"] = atlassian_config.jira_user_identifier
+            elif atlassian_config.jira_username:
+                atlassian_env["JIRA_USER_IDENTIFIER"] = atlassian_config.jira_username
             
             if atlassian_config.confluence_url:
                 atlassian_env["CONFLUENCE_URL"] = atlassian_config.confluence_url
