@@ -1926,6 +1926,13 @@ When starting a new session, please:
                 f.write(system_prompt)
                 system_prompt_file = f.name
             
+            # Create temporary file for initial prompt (will be passed via stdin)
+            initial_prompt_file = None
+            if initial_prompt:
+                with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+                    f.write(initial_prompt)
+                    initial_prompt_file = f.name
+            
             try:
                 # Build command with system prompt file
                 claude_cmd = ["claude", "--append-system-prompt-file", system_prompt_file]
@@ -1935,27 +1942,31 @@ When starting a new session, please:
                 claude_cmd.append("--allowedTools")
                 claude_cmd.extend(allowed_tools)
                 
-                # Add initial prompt with context if available
-                if initial_prompt:
-                    claude_cmd.append(initial_prompt)
-                
                 # Debug: Print the full command before running
                 console.print("\n[dim]Debug - Full claude command:[/dim]")
                 console.print(f"[dim]{' '.join(repr(arg) for arg in claude_cmd)}[/dim]\n")
-                console.print(f"[dim]System prompt file: {system_prompt_file}[/dim]\n")
+                console.print(f"[dim]System prompt file: {system_prompt_file}[/dim]")
+                if initial_prompt_file:
+                    console.print(f"[dim]Initial prompt file (stdin): {initial_prompt_file}[/dim]")
+                console.print()
+                
+                # Run claude with initial prompt via stdin if available
+                stdin_input = None
+                if initial_prompt_file:
+                    with open(initial_prompt_file, 'r') as f:
+                        stdin_input = f.read()
                 
                 subprocess.run(
                     claude_cmd,
                     cwd=str(working_dir),
                     env=env,
+                    input=stdin_input,
+                    text=True,
                     check=False
                 )
             finally:
-                # Clean up temporary file
-                try:
-                    Path(system_prompt_file).unlink()
-                except Exception:
-                    pass  # Best effort cleanup
+                # Keep temporary file for debugging - don't clean up
+                pass
             
             console.print("\n[green]✓[/green] Claude session ended")
         except Exception as e:
