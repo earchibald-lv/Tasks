@@ -21,6 +21,7 @@ from taskmanager.database import get_session, init_db
 from taskmanager.models import Priority, TaskStatus
 from taskmanager.repository_impl import SQLTaskRepository
 from taskmanager.service import TaskService
+from taskmanager.mcp_discovery import get_allowed_tools
 
 # Initialize Typer app
 app = typer.Typer(
@@ -1922,16 +1923,10 @@ When starting a new session, please:
             # Build command with system prompt
             claude_cmd = ["claude", "--append-system-prompt", system_prompt]
             
-            # Automatically allow all tasks-mcp and atlassian-mcp tools
-            # This enables the agent to use all available MCP tools without manual approval
-            # Format: mcp__<server-name>__* allows all tools from that server
-            # Include default tools (Edit, Bash, Read) as well
-            claude_cmd.extend([
-                "--allowedTools",
-                "Edit", "Bash", "Read",  # Default tools
-                "mcp__tasks-mcp__*",     # All tasks-mcp tools
-                "mcp__atlassian-mcp__*"  # All atlassian-mcp tools
-            ])
+            # Get all allowed tools (tasks-mcp tools are known, atlassian-mcp discovered)
+            allowed_tools = get_allowed_tools()
+            claude_cmd.append("--allowedTools")
+            claude_cmd.extend(allowed_tools)
             
             # Add initial prompt with context if available
             if initial_prompt:
