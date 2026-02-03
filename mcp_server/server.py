@@ -5,8 +5,9 @@ to AI agents through tools with User Elicitation for interactive forms.
 """
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from fastmcp import FastMCP, Context
 from pydantic import BaseModel, Field
@@ -1857,6 +1858,212 @@ Let me generate a comprehensive report of your task activity.
    - Recommended actions
 
 Let's generate your {adj} report!"""
+
+
+# ============================================================================
+# Time Awareness Tools
+# ============================================================================
+
+
+@mcp.tool()
+def get_current_time(timezone: str = "UTC") -> str:
+    """Get current timestamp with timezone information.
+    
+    Provides agents with accurate time awareness for schedule operations,
+    deadline management, and time-sensitive workflows.
+    
+    Args:
+        timezone: Timezone name (e.g., "UTC", "America/New_York", "Europe/London")
+                 Defaults to UTC. Use standard IANA timezone names.
+    
+    Returns:
+        JSON string with current time information including:
+        - timestamp: ISO 8601 formatted datetime
+        - timezone: Timezone name
+        - unix_timestamp: Unix epoch timestamp
+        - day_of_week: Day name (Monday, Tuesday, etc.)
+        - is_weekend: Boolean indicating if it's weekend
+    """
+    try:
+        tz = ZoneInfo(timezone)
+    except Exception:
+        return f"❌ Invalid timezone: {timezone}\n\nUse IANA timezone names like: UTC, America/New_York, Europe/London, Asia/Tokyo"
+    
+    now = datetime.now(tz)
+    
+    result = {
+        "timestamp": now.isoformat(),
+        "timezone": timezone,
+        "unix_timestamp": int(now.timestamp()),
+        "date": now.strftime("%Y-%m-%d"),
+        "time": now.strftime("%H:%M:%S"),
+        "day_of_week": now.strftime("%A"),
+        "is_weekend": now.weekday() >= 5,
+        "formatted": now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
+    }
+    
+    lines = [
+        f"🕐 **Current Time**",
+        f"",
+        f"**{result['formatted']}**",
+        f"",
+        f"- **Date:** {result['date']}",
+        f"- **Time:** {result['time']}",
+        f"- **Day:** {result['day_of_week']}" + (" (Weekend)" if result['is_weekend'] else ""),
+        f"- **Timezone:** {timezone}",
+        f"- **Unix Timestamp:** {result['unix_timestamp']}",
+        f"",
+        f"**ISO 8601:** `{result['timestamp']}`"
+    ]
+    
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def format_datetime(
+    timestamp: str,
+    format_string: str = "%Y-%m-%d %H:%M:%S",
+    source_timezone: str = "UTC",
+    target_timezone: str = "UTC"
+) -> str:
+    """Format and convert datetime strings.
+    
+    Parses datetime strings and reformats them according to specifications.
+    Supports timezone conversion.
+    
+    Args:
+        timestamp: Input datetime string (ISO 8601 format recommended)
+        format_string: Output format using Python strftime codes
+                      Examples: "%Y-%m-%d", "%B %d, %Y", "%I:%M %p"
+        source_timezone: Timezone of input timestamp (default: UTC)
+        target_timezone: Timezone for output (default: UTC)
+    
+    Returns:
+        Formatted datetime string or error message
+    """
+    try:
+        # Parse the input timestamp
+        if 'T' in timestamp or '+' in timestamp or timestamp.endswith('Z'):
+            # ISO 8601 format
+            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+        else:
+            # Try common formats
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"]:
+                try:
+                    dt = datetime.strptime(timestamp, fmt)
+                    break
+                except ValueError:
+                    continue
+            else:
+                raise ValueError("Could not parse timestamp")
+        
+        # Add source timezone if naive
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo(source_timezone))
+        
+        # Convert to target timezone
+        if target_timezone != source_timezone:
+            dt = dt.astimezone(ZoneInfo(target_timezone))
+        
+        formatted = dt.strftime(format_string)
+        
+        return f"✓ Formatted: **{formatted}**\n\nTimezone: {target_timezone}"
+        
+    except Exception as e:
+        return f"❌ Error formatting datetime: {str(e)}\n\nTip: Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS) for best results"
+
+
+@mcp.tool()
+def calculate_time_delta(
+    start: str,
+    end: str = "",
+    timezone: str = "UTC"
+) -> str:
+    """Calculate time difference between two dates/times.
+    
+    Computes duration between two timestamps, or from a timestamp to now.
+    Useful for deadline calculations, time tracking, and schedule planning.
+    
+    Args:
+        start: Start datetime (ISO 8601 or YYYY-MM-DD format)
+        end: End datetime (ISO 8601 or YYYY-MM-DD format). 
+             If empty, uses current time.
+        timezone: Timezone for calculations (default: UTC)
+    
+    Returns:
+        Human-readable time difference with breakdown
+    """
+    try:
+        tz = ZoneInfo(timezone)
+        
+        # Parse start time
+        if 'T' in start or '+' in start or start.endswith('Z'):
+            start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+        else:
+            start_dt = datetime.fromisoformat(start + "T00:00:00")
+        
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=tz)
+        
+        # Parse or get end time
+        if end:
+            if 'T' in end or '+' in end or end.endswith('Z'):
+                end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+            else:
+                end_dt = datetime.fromisoformat(end + "T00:00:00")
+            
+            if end_dt.tzinfo is None:
+                end_dt = end_dt.replace(tzinfo=tz)
+        else:
+            end_dt = datetime.now(tz)
+            end = "now"
+        
+        # Calculate delta
+        delta = end_dt - start_dt
+        
+        # Break down the time difference
+        total_seconds = int(delta.total_seconds())
+        is_past = total_seconds < 0
+        total_seconds = abs(total_seconds)
+        
+        days = total_seconds // 86400
+        hours = (total_seconds % 86400) // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+        
+        # Build human-readable output
+        parts = []
+        if days > 0:
+            parts.append(f"{days} day{'s' if days != 1 else ''}")
+        if hours > 0:
+            parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+        if minutes > 0:
+            parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        if seconds > 0 and not parts:  # Only show seconds if no larger units
+            parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
+        
+        readable = ", ".join(parts) if parts else "0 seconds"
+        direction = "ago" if is_past else "from now"
+        
+        lines = [
+            f"⏱️ **Time Delta**",
+            f"",
+            f"**{readable}** {direction}",
+            f"",
+            f"- **Start:** {start_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}",
+            f"- **End:** {end if end != 'now' else end_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}",
+            f"",
+            f"**Breakdown:**",
+            f"- Days: {days}",
+            f"- Hours: {hours}",
+            f"- Minutes: {minutes}",
+            f"- Total seconds: {total_seconds:,}",
+        ]
+        
+        return "\n".join(lines)
+        
+    except Exception as e:
+        return f"❌ Error calculating time delta: {str(e)}\n\nTip: Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS) or YYYY-MM-DD"
 
 
 # ============================================================================
