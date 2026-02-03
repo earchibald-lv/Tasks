@@ -1850,6 +1850,16 @@ When starting a new session, please:
 - **Efficient:** Batch similar operations when appropriate
 - **Transparent:** Explain what you're doing and why, especially for complex operations
 
+## Communication Standards
+
+- **Always Use Numeric Task IDs:** When referring to tasks in your responses, ALWAYS include the numeric task ID (e.g., "task #27" or "#27") even when using natural language descriptions. Never refer to tasks by title alone.
+  - ✅ GOOD: "I've updated task #27 (Context initialization defect)"
+  - ✅ GOOD: "Let's work on #27"
+  - ❌ BAD: "I've updated the context initialization defect task"
+  - ❌ BAD: "Let's work on that task"
+- **JIRA References:** Similarly, always include JIRA issue keys when discussing JIRA items (e.g., "SRE-1234")
+- **Clarity:** This ensures precise communication and avoids ambiguity when discussing multiple tasks
+
 """
         
         # Add current task context if provided
