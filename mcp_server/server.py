@@ -121,7 +121,8 @@ def format_task_markdown(task: Task) -> str:
         from taskmanager.service import TaskService
         
         settings = get_settings()
-        jira_links = TaskService.format_jira_links(task.jira_issues, settings.jira.jira_url)
+        jira_url = settings.atlassian.jira_url if settings.atlassian else None
+        jira_links = TaskService.format_jira_links(task.jira_issues, jira_url)
         
         if jira_links:
             lines.append("")
