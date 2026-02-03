@@ -1922,6 +1922,14 @@ When starting a new session, please:
             # Build command with system prompt
             claude_cmd = ["claude", "--append-system-prompt", system_prompt]
             
+            # Automatically allow all tasks-mcp and atlassian-mcp tools
+            # This enables the agent to use all available MCP tools without manual approval
+            allowed_tools = [
+                "mcp_tasks-mcp",
+                "mcp_atlassian-mcp"
+            ]
+            claude_cmd.extend(["--allowedTools"] + allowed_tools)
+            
             # Add initial prompt with context if available
             if initial_prompt:
                 claude_cmd.append(initial_prompt)
