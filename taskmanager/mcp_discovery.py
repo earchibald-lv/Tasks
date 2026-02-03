@@ -132,11 +132,13 @@ def get_auto_approve_tools() -> List[str]:
 
 
 def get_mcp_servers_config() -> Dict[str, Any]:
-    """Get the MCP servers configuration for settings.json.
+    """Get the MCP servers configuration for .mcp.json.
     
     Returns:
         Dict[str, Any]: MCP servers configuration dictionary.
     """
+    from taskmanager.config import get_settings
+    
     # Get the tasks-mcp command path
     tasks_mcp_path = shutil.which("tasks-mcp")
     if not tasks_mcp_path:
@@ -150,14 +152,39 @@ def get_mcp_servers_config() -> Dict[str, Any]:
         }
     }
     
-    # Check if atlassian-mcp is available
-    atlassian_mcp_path = shutil.which("atlassian-mcp")
-    if atlassian_mcp_path:
-        servers["atlassian-mcp"] = {
-            "command": atlassian_mcp_path,
-            "args": [],
-            "env": {}
-        }
+    # Add atlassian-mcp via uvx (supports JIRA and Confluence)
+    # Check if uvx is available
+    uvx_path = shutil.which("uvx")
+    if uvx_path:
+        # Load config to get Atlassian credentials
+        settings = get_settings()
+        atlassian_config = settings.atlassian.resolve_secrets()
+        
+        # Build environment variables for atlassian-mcp
+        atlassian_env = {}
+        if atlassian_config.jira_url and atlassian_config.jira_token:
+            atlassian_env["JIRA_URL"] = atlassian_config.jira_url
+            atlassian_env["JIRA_SSL_VERIFY"] = str(atlassian_config.jira_ssl_verify).lower()
+            
+            if atlassian_config.jira_username:
+                atlassian_env["JIRA_USERNAME"] = atlassian_config.jira_username
+            if atlassian_config.jira_token:
+                atlassian_env["JIRA_PERSONAL_TOKEN"] = atlassian_config.jira_token
+            
+            if atlassian_config.confluence_url:
+                atlassian_env["CONFLUENCE_URL"] = atlassian_config.confluence_url
+            if atlassian_config.confluence_username:
+                atlassian_env["CONFLUENCE_USERNAME"] = atlassian_config.confluence_username
+            if atlassian_config.confluence_token:
+                atlassian_env["CONFLUENCE_PERSONAL_TOKEN"] = atlassian_config.confluence_token
+            if atlassian_config.confluence_url:
+                atlassian_env["CONFLUENCE_SSL_VERIFY"] = str(atlassian_config.confluence_ssl_verify).lower()
+            
+            servers["atlassian-mcp"] = {
+                "command": uvx_path,
+                "args": ["--native-tls", "mcp-atlassian"],
+                "env": atlassian_env
+            }
     
     return servers
 
