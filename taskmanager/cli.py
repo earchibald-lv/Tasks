@@ -1595,7 +1595,7 @@ def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
     display_parts = []
     display_parts.append("[bold cyan]📊 Current Task Context[/bold cyan]\n")
     
-    profile_name = os.environ.get("TASKMANAGER_PROFILE", "default")
+    profile_name = settings.profile
     display_parts.append(f"[dim]Profile:[/dim] {profile_name}")
     display_parts.append(f"[dim]Total tasks:[/dim] {len(all_tasks)}")
     
