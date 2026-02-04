@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"tasks-mcp": {
+			"command": "tasks-mcp",
+			"type": "stdio"
+		}
+	},
+	"inputs": []
+}
