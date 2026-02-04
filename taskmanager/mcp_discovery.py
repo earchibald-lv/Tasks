@@ -269,13 +269,12 @@ def create_ephemeral_session_dir(system_prompt: str, working_dir: str = None) ->
         "hasCompletedProjectOnboarding": True,
     })
     
-    # Merge permissions - combine global permissions with ours
+    # Note: Tool permissions are now handled via --allowed-tools CLI flag
+    # instead of settings.json, so we don't need to build the permissions list here.
+    # Preserve global permissions if they exist, but don't add MCP tools to allow list.
     global_permissions = base_settings.get("permissions", {})
-    global_allow = global_permissions.get("allow", [])
-    our_allow = get_auto_approve_tools()
-    # Combine both lists, removing duplicates while preserving order
-    combined_allow = list(dict.fromkeys(global_allow + our_allow))
-    settings["permissions"] = {**global_permissions, "allow": combined_allow}
+    if global_permissions:
+        settings["permissions"] = global_permissions
     
     # Write settings.json
     settings_file = claude_dir / "settings.json"

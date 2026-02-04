@@ -1979,11 +1979,13 @@ When starting a new session, please:
             # Build claude command with strict MCP config flags
             # --mcp-config: Specifies the path to our MCP servers JSON
             # --strict-mcp-config: Ignores global MCP servers from ~/.claude.json
+            # --allowed-tools: Auto-approve all MCP tools without prompting
             mcp_config_path = session_dir / ".mcp.json"
             claude_cmd = [
                 "claude",
                 "--mcp-config", str(mcp_config_path),
-                "--strict-mcp-config"
+                "--strict-mcp-config",
+                "--allowed-tools", "mcp__tasks-mcp__*", "mcp__atlassian-mcp__*"
             ]
             
             # Run claude with initial prompt via stdin
