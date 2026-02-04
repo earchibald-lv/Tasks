@@ -194,6 +194,89 @@ class AtlassianConfig(BaseModel):
         )
 
 
+class McpServerModifier(BaseModel):
+    """Per-MCP-server customization for a profile.
+    
+    Allows overriding MCP server command, arguments, and environment variables
+    for profile-specific configurations.
+    
+    Supports 1Password secret references in environment variables.
+    Example:
+        command = "python"
+        args = ["-m", "mcp_module"]
+        env = { "TOKEN" = "op://private/mcp/token" }
+    """
+
+    command: str | None = Field(default=None, description="Override server command")
+    args: list[str] | None = Field(default=None, description="Override server arguments")
+    env: dict[str, str] | None = Field(default=None, description="Additional/override environment variables (supports 1Password references)")
+    
+    def resolve_secrets(self) -> "McpServerModifier":
+        """Resolve any 1Password secret references in environment variables.
+        
+        Returns:
+            McpServerModifier: A new modifier with all 1Password references resolved
+        """
+        resolved_env = None
+        if self.env:
+            resolved_env = {}
+            for key, value in self.env.items():
+                resolved_value = resolve_config_value(value)
+                # Only include non-None resolved values
+                if resolved_value is not None:
+                    resolved_env[key] = resolved_value
+                else:
+                    # If resolution fails, keep original value
+                    resolved_env[key] = value
+        
+        return McpServerModifier(
+            command=self.command,
+            args=self.args,
+            env=resolved_env,
+        )
+
+
+class ProfileModifier(BaseModel):
+    """Profile-level customizations for MCP servers and prompts.
+    
+    Allows per-profile configuration including:
+    - MCP server command/args/env overrides
+    - Custom system prompt additions
+    
+    Example:
+        [profiles.dev]
+        prompt_additions = "You are in DEV mode. Extra caution required."
+        
+        [profiles.dev.mcp_servers.atlassian-mcp]
+        env = { "JIRA_URL" = "op://private/dev/jira/url" }
+    """
+
+    mcp_servers: dict[str, McpServerModifier] = Field(
+        default_factory=dict,
+        description="Per-server MCP overrides"
+    )
+    prompt_additions: str | None = Field(
+        default=None,
+        description="Extra system prompt text for this profile"
+    )
+    
+    def resolve_secrets(self) -> "ProfileModifier":
+        """Resolve any 1Password secret references in all MCP servers.
+        
+        Returns:
+            ProfileModifier: A new modifier with all 1Password references resolved
+        """
+        resolved_servers = {
+            server_name: modifier.resolve_secrets()
+            for server_name, modifier in self.mcp_servers.items()
+        }
+        
+        return ProfileModifier(
+            mcp_servers=resolved_servers,
+            prompt_additions=self.prompt_additions,
+        )
+
+
 class Settings(BaseSettings):
     """Application settings with TOML configuration support.
 
@@ -229,6 +312,7 @@ class Settings(BaseSettings):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     atlassian: AtlassianConfig = Field(default_factory=AtlassianConfig)
+    profiles: dict[str, ProfileModifier] = Field(default_factory=dict, description="Profile-specific customizations")
 
     # Legacy single database URL (for backward compatibility)
     database_url: str | None = Field(default=None, description="Direct database URL override")
@@ -342,6 +426,18 @@ class Settings(BaseSettings):
             db_path = Path(db_url.replace("sqlite:///", ""))
             db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def get_profile_modifier(self) -> "ProfileModifier | None":
+        """Get the ProfileModifier for the currently active profile, with secrets resolved.
+        
+        Returns:
+            ProfileModifier | None: The resolved modifier for the active profile, or None if not configured
+        """
+        if self.profile not in self.profiles:
+            return None
+        
+        modifier = self.profiles[self.profile]
+        return modifier.resolve_secrets()
+
 
 def find_git_root() -> Path | None:
     """Find the git repository root directory.
@@ -446,6 +542,21 @@ def create_default_config(path: Path) -> None:
             "confluence_token": None,  # Set to token or 1Password ref: "op://private/confluence/token"
             "confluence_ssl_verify": True,  # Set to False to disable SSL verification
         },
+        "profiles": {
+            "dev": {
+                "mcp_servers": {
+                    # Example: Override atlassian-mcp for dev profile
+                    # "atlassian-mcp": {
+                    #     "env": {
+                    #         "JIRA_URL": "op://private/dev/jira/url",
+                    #         "JIRA_PERSONAL_TOKEN": "op://private/dev/jira/token"
+                    #     }
+                    # }
+                },
+                # Example: Add dev-specific instructions
+                # "prompt_additions": "You are in DEV profile. Extra caution required:\n- Confirm all JIRA updates with user before execution\n- Never delete issues without explicit confirmation"
+            }
+        },
     }
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -476,7 +587,7 @@ def get_settings() -> Settings:
             flat_config.update(toml_config["general"])
         
         # Pass nested sections as-is
-        for key in ["database", "defaults", "logging", "mcp", "atlassian"]:
+        for key in ["database", "defaults", "logging", "mcp", "atlassian", "profiles"]:
             if key in toml_config:
                 flat_config[key] = toml_config[key]
 
@@ -524,7 +635,7 @@ def create_settings_for_profile(profile: str) -> Settings:
     flat_config["profile"] = profile
 
     # Pass nested sections as-is
-    for key in ["database", "defaults", "logging", "mcp", "jira"]:
+    for key in ["database", "defaults", "logging", "mcp", "atlassian", "profiles"]:
         if key in toml_config:
             flat_config[key] = toml_config[key]
 

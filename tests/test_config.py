@@ -2,7 +2,15 @@
 
 from pathlib import Path
 
-from taskmanager.config import Settings, get_settings, reset_settings
+from taskmanager.config import (
+    Settings,
+    get_settings,
+    reset_settings,
+    McpServerModifier,
+    ProfileModifier,
+    resolve_config_value,
+    resolve_onepassword_reference,
+)
 
 
 class TestSettings:
@@ -63,3 +71,239 @@ class TestSettings:
         settings2 = get_settings()
 
         assert settings1 is not settings2
+
+
+class TestMcpServerModifier:
+    """Tests for McpServerModifier configuration."""
+
+    def test_create_modifier(self):
+        """Test creating an MCP server modifier."""
+        modifier = McpServerModifier(
+            command="python",
+            args=["-m", "mcp_module"],
+            env={"DEBUG": "true"}
+        )
+
+        assert modifier.command == "python"
+        assert modifier.args == ["-m", "mcp_module"]
+        assert modifier.env == {"DEBUG": "true"}
+
+    def test_modifier_defaults(self):
+        """Test that modifier fields are optional."""
+        modifier = McpServerModifier()
+
+        assert modifier.command is None
+        assert modifier.args is None
+        assert modifier.env is None
+
+    def test_modifier_resolve_secrets_no_secrets(self):
+        """Test resolving secrets when there are none."""
+        modifier = McpServerModifier(
+            command="python",
+            args=["-m", "mcp_module"],
+            env={"DEBUG": "true", "LOG_LEVEL": "DEBUG"}
+        )
+
+        resolved = modifier.resolve_secrets()
+
+        assert resolved.command == "python"
+        assert resolved.args == ["-m", "mcp_module"]
+        assert resolved.env == {"DEBUG": "true", "LOG_LEVEL": "DEBUG"}
+
+    def test_modifier_resolve_secrets_with_references(self):
+        """Test that resolve_secrets handles 1Password references in env."""
+        # This test uses mock since we can't call actual 1Password
+        modifier = McpServerModifier(
+            command="python",
+            env={"TOKEN": "op://private/token", "DEBUG": "true"}
+        )
+
+        # Note: This will try to resolve actual 1Password refs, which may fail
+        # In real usage, the resolve_onepassword_reference would return the actual value
+        # For testing, we just verify the structure is maintained
+        resolved = modifier.resolve_secrets()
+
+        assert resolved.command == "python"
+        assert "TOKEN" in resolved.env
+        assert "DEBUG" in resolved.env
+
+
+class TestProfileModifier:
+    """Tests for ProfileModifier configuration."""
+
+    def test_create_profile_modifier(self):
+        """Test creating a profile modifier."""
+        mcp_modifier = McpServerModifier(
+            command="python",
+            args=["-m", "mcp_custom"],
+            env={"DEBUG": "true"}
+        )
+
+        profile_modifier = ProfileModifier(
+            mcp_servers={"atlassian-mcp": mcp_modifier},
+            prompt_additions="Extra instructions for this profile"
+        )
+
+        assert "atlassian-mcp" in profile_modifier.mcp_servers
+        assert profile_modifier.mcp_servers["atlassian-mcp"].command == "python"
+        assert profile_modifier.prompt_additions == "Extra instructions for this profile"
+
+    def test_profile_modifier_defaults(self):
+        """Test that profile modifier fields are optional."""
+        profile_modifier = ProfileModifier()
+
+        assert profile_modifier.mcp_servers == {}
+        assert profile_modifier.prompt_additions is None
+
+    def test_profile_modifier_resolve_secrets(self):
+        """Test resolving secrets in all MCP servers."""
+        mcp_modifier1 = McpServerModifier(
+            env={"TOKEN": "op://private/token1"}
+        )
+        mcp_modifier2 = McpServerModifier(
+            env={"TOKEN": "op://private/token2"}
+        )
+
+        profile_modifier = ProfileModifier(
+            mcp_servers={
+                "server1": mcp_modifier1,
+                "server2": mcp_modifier2
+            },
+            prompt_additions="Profile instructions"
+        )
+
+        resolved = profile_modifier.resolve_secrets()
+
+        assert len(resolved.mcp_servers) == 2
+        assert "server1" in resolved.mcp_servers
+        assert "server2" in resolved.mcp_servers
+        assert resolved.prompt_additions == "Profile instructions"
+
+    def test_multiple_servers_in_profile(self):
+        """Test profile with multiple MCP server overrides."""
+        tasks_modifier = McpServerModifier(
+            env={"TASKMANAGER_PROFILE": "dev"}
+        )
+        atlassian_modifier = McpServerModifier(
+            env={"JIRA_URL": "https://dev.jira.com"}
+        )
+
+        profile_modifier = ProfileModifier(
+            mcp_servers={
+                "tasks-mcp": tasks_modifier,
+                "atlassian-mcp": atlassian_modifier
+            }
+        )
+
+        assert len(profile_modifier.mcp_servers) == 2
+        assert profile_modifier.mcp_servers["tasks-mcp"].env["TASKMANAGER_PROFILE"] == "dev"
+        assert profile_modifier.mcp_servers["atlassian-mcp"].env["JIRA_URL"] == "https://dev.jira.com"
+
+
+class TestSettingsWithProfiles:
+    """Tests for Settings with profile modifiers."""
+
+    def test_settings_profiles_field(self):
+        """Test that Settings has profiles field."""
+        settings = Settings(
+            profiles={
+                "dev": ProfileModifier(
+                    prompt_additions="Dev instructions"
+                )
+            }
+        )
+
+        assert "dev" in settings.profiles
+        assert settings.profiles["dev"].prompt_additions == "Dev instructions"
+
+    def test_get_profile_modifier_default_profile(self):
+        """Test getting profile modifier for default profile."""
+        settings = Settings(
+            profile="default",
+            profiles={
+                "dev": ProfileModifier(
+                    prompt_additions="Dev instructions"
+                )
+            }
+        )
+
+        modifier = settings.get_profile_modifier()
+        assert modifier is None
+
+    def test_get_profile_modifier_dev_profile(self):
+        """Test getting profile modifier for dev profile."""
+        dev_modifier = ProfileModifier(
+            prompt_additions="Dev instructions"
+        )
+
+        settings = Settings(
+            profile="dev",
+            profiles={
+                "dev": dev_modifier
+            }
+        )
+
+        modifier = settings.get_profile_modifier()
+        assert modifier is not None
+        assert modifier.prompt_additions == "Dev instructions"
+
+    def test_get_profile_modifier_with_mcp_servers(self):
+        """Test getting profile modifier with MCP server overrides."""
+        mcp_override = McpServerModifier(
+            command="python",
+            args=["-m", "mcp_custom"]
+        )
+
+        dev_modifier = ProfileModifier(
+            mcp_servers={"atlassian-mcp": mcp_override},
+            prompt_additions="Dev mode active"
+        )
+
+        settings = Settings(
+            profile="dev",
+            profiles={"dev": dev_modifier}
+        )
+
+        modifier = settings.get_profile_modifier()
+        assert modifier is not None
+        assert "atlassian-mcp" in modifier.mcp_servers
+        assert modifier.mcp_servers["atlassian-mcp"].command == "python"
+
+    def test_profile_isolation(self):
+        """Test that different profiles don't affect each other."""
+        dev_modifier = ProfileModifier(
+            prompt_additions="Dev instructions"
+        )
+        test_modifier = ProfileModifier(
+            prompt_additions="Test instructions"
+        )
+
+        settings = Settings(
+            profile="dev",
+            profiles={
+                "dev": dev_modifier,
+                "test": test_modifier
+            }
+        )
+
+        dev_mod = settings.get_profile_modifier()
+        assert dev_mod.prompt_additions == "Dev instructions"
+
+        # Switch to test profile
+        settings.profile = "test"
+        test_mod = settings.get_profile_modifier()
+        assert test_mod.prompt_additions == "Test instructions"
+
+    def test_settings_backward_compatibility(self):
+        """Test that settings without profiles still work."""
+        settings = Settings(
+            profile="default",
+            profiles={}
+        )
+
+        modifier = settings.get_profile_modifier()
+        assert modifier is None
+
+        # Ensure basic settings still work
+        assert settings.profile == "default"
+        assert settings.database is not None

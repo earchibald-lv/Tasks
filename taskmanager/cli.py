@@ -1728,6 +1728,9 @@ def chat_command(
         # Get current profile to ensure MCP server uses the same profile
         current_profile = settings.profile
         
+        # Get profile modifier if configured for this profile
+        profile_modifier = settings.get_profile_modifier()
+        
         # Build MCP servers configuration for claude CLI
         # Important: Pass profile to tasks-mcp server so all operations use the correct profile
         mcp_servers = {
@@ -1738,6 +1741,16 @@ def chat_command(
                 }
             }
         }
+        
+        # Apply profile modifiers to tasks-mcp if configured
+        if profile_modifier and "tasks-mcp" in profile_modifier.mcp_servers:
+            tasks_modifier = profile_modifier.mcp_servers["tasks-mcp"]
+            if tasks_modifier.command:
+                mcp_servers["tasks"]["command"] = tasks_modifier.command
+            if tasks_modifier.args:
+                mcp_servers["tasks"]["args"] = tasks_modifier.args
+            if tasks_modifier.env:
+                mcp_servers["tasks"]["env"].update(tasks_modifier.env)
         
         # Add atlassian-mcp with credentials from config file
         atlassian_config = settings.atlassian.resolve_secrets()
@@ -1768,6 +1781,17 @@ def chat_command(
                 "args": ["--native-tls", "mcp-atlassian"],
                 "env": atlassian_env
             }
+            
+            # Apply profile modifiers to atlassian-mcp if configured
+            if profile_modifier and "atlassian-mcp" in profile_modifier.mcp_servers:
+                atlassian_modifier = profile_modifier.mcp_servers["atlassian-mcp"]
+                if atlassian_modifier.command:
+                    mcp_servers["atlassian"]["command"] = atlassian_modifier.command
+                if atlassian_modifier.args:
+                    mcp_servers["atlassian"]["args"] = atlassian_modifier.args
+                if atlassian_modifier.env:
+                    mcp_servers["atlassian"]["env"].update(atlassian_modifier.env)
+            
             console.print("[green]✓[/green] Atlassian credentials loaded from configuration")
         else:
             console.print("[yellow]Warning:[/yellow] Atlassian credentials not configured")
@@ -1914,6 +1938,10 @@ When starting a new session, please:
                 system_prompt += f"- **Tags:** {', '.join(task.tags)}\n"
             system_prompt += f"- **Workspace:** {working_dir}\n"
             system_prompt += f"\nPlease help the user work on this task efficiently.\n"
+        
+        # Add profile-specific prompt additions if configured
+        if profile_modifier and profile_modifier.prompt_additions:
+            system_prompt += f"\n## Profile-Specific Instructions\n\n{profile_modifier.prompt_additions}\n"
         
         try:
             # Launch claude CLI with comprehensive system prompt and initial context
