@@ -31,6 +31,7 @@ dependencies = [
     "mcp>=1.23.0",
     "tomli-w>=1.0.0",
     "alembic>=1.13.0",
+    "shtab>=1.7.0",
 ]
 
 [project.optional-dependencies]
@@ -43,7 +44,7 @@ dev = [
 ]
 
 [project.scripts]
-tasks = "taskmanager.cli:app"
+tasks = "taskmanager.cli:main"
 tasks-mcp = "mcp_server.server:main"
 
 [tool.setuptools.packages.find]

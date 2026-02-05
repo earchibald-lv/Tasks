@@ -1,20 +1,25 @@
-"""CLI interface for the task manager using Typer.
+"""CLI interface for the task manager using argparse.
 
 This module provides the command-line interface that wraps the service layer,
 providing user-friendly commands for task management.
 """
 
+import argparse
+import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import date, datetime
 from pathlib import Path
-
-import typer
-from rich.console import Console
-from rich.table import Table
 from importlib.metadata import version, PackageNotFoundError
+
+try:
+    import shtab
+    SHTAB_AVAILABLE = True
+except ImportError:
+    SHTAB_AVAILABLE = False
 
 from taskmanager.config import get_settings
 from taskmanager.database import get_session, init_db
@@ -23,18 +28,38 @@ from taskmanager.repository_impl import SQLTaskRepository
 from taskmanager.service import TaskService
 from taskmanager.mcp_discovery import get_allowed_tools, create_ephemeral_session_dir
 
-# Initialize Typer app
-app = typer.Typer(
-    name="tasks",
-    help="A powerful CLI task manager for organizing your work and life.",
-    add_completion=True,
-)
-
-# Rich console for beautiful output
-console = Console()
 
 # Global automation flag - can be set via environment variable
 _automation_mode = os.getenv("TASKS_AUTOMATION", "").lower() in ("1", "true", "yes")
+
+
+class HelpfulArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser that shows help on error instead of just error message."""
+    
+    def error(self, message):
+        """Override error to show help text instead of just error."""
+        # Print the help for the current parser
+        self.print_help(sys.stderr)
+        sys.stderr.write(f'\nerror: {message}\n')
+        sys.exit(2)
+
+
+def expand_abbreviations(args, subcommands):
+    """Expand abbreviated subcommands in args list."""
+    if len(args) > 1:
+        potential_cmd = args[1]
+        # Check if it's not already a full command or an option
+        if not potential_cmd.startswith('-') and potential_cmd not in subcommands:
+            # Try to match as abbreviation
+            matches = [cmd for cmd in subcommands if cmd.startswith(potential_cmd)]
+            if len(matches) == 1:
+                args[1] = matches[0]
+            elif len(matches) > 1:
+                print(f"error: ambiguous command '{potential_cmd}'. Did you mean one of these?", file=sys.stderr)
+                for match in matches:
+                    print(f"  {match}", file=sys.stderr)
+                sys.exit(2)
+    return args
 
 
 def get_version() -> str:
@@ -45,20 +70,12 @@ def get_version() -> str:
         return "unknown"
 
 
-def version_callback(value: bool):
-    """Display version information and exit."""
-    if value:
-        app_version = get_version()
-        console.print(f"tasks {app_version}")
-        raise typer.Exit()
-
-
 def get_service() -> TaskService:
     """Create and return a TaskService instance with dependencies."""
     settings = get_settings()
     profile = settings.profile
-    init_db(profile)  # Ensure database is initialized with correct profile
-    session = get_session(profile)  # Get session for correct profile
+    init_db(profile)
+    session = get_session(profile)
     repository = SQLTaskRepository(session)
     return TaskService(repository)
 
@@ -68,280 +85,124 @@ def is_glow_available() -> bool:
     return shutil.which("glow") is not None
 
 
-def format_task_as_markdown(task, service, settings) -> str:
-    """Format a task as markdown for display with glow."""
-    lines = []
-
-    # Title with task ID
-    lines.append(f"# Task #{task.id}: {task.title}")
-    lines.append("")
-
-    # Description
-    if task.description:
-        lines.append("## Description")
-        lines.append(task.description)  # Don't re-encode markdown already in description
-        lines.append("")
-
-    # Status with emoji
-    status_icons = {
-        TaskStatus.PENDING: "○",
-        TaskStatus.IN_PROGRESS: "◐",
-        TaskStatus.COMPLETED: "✓",
-        TaskStatus.CANCELLED: "✕",
-        TaskStatus.ARCHIVED: "✖",
-    }
-    status_icon = status_icons.get(task.status, "?")
-    lines.append(f"**Status:** {status_icon} {task.status.value}")
-    lines.append("")
-
-    # Priority
-    lines.append(f"**Priority:** {task.priority.value}")
-    lines.append("")
-
-    # JIRA issues with links
-    if task.jira_issues:
-        jira_links = service.format_jira_links(task.jira_issues, settings.atlassian.jira_url)
-        if jira_links:
-            lines.append("**JIRA Issues:**")
-            for issue_key, url in jira_links:
-                lines.append(f"- [{issue_key}]({url})")
-        else:
-            # No JIRA URL configured, just show the keys
-            jira_list = [issue.strip() for issue in task.jira_issues.split(",")]
-            lines.append("**JIRA Issues:**")
-            for issue in jira_list:
-                lines.append(f"- {issue}")
-        lines.append("")
-
-    # Tags
-    if task.tags:
-        tag_list = [tag.strip() for tag in task.tags.split(",")]
-        lines.append(f"**Tags:** {', '.join(tag_list)}")
-        lines.append("")
-
-    # Attachments
-    attachments = service.list_attachments(task.id)
-    if attachments:
-        lines.append(f"**Attachments:** {len(attachments)} file(s) - use `tasks attach list {task.id}` to view")
-        lines.append("")
-
-    # Dates
-    if task.due_date:
-        is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
-        if is_overdue:
-            lines.append(f"**Due:** {task.due_date} ⚠ **OVERDUE**")
-        else:
-            lines.append(f"**Due:** {task.due_date}")
-        lines.append("")
-
-    lines.append(f"**Created:** {task.created_at.strftime('%Y-%m-%d %H:%M')}")
-    if task.updated_at:
-        lines.append(f"**Updated:** {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
-
-    return "\n".join(lines)
-
-
-def display_with_glow(markdown_content: str) -> bool:
-    """Display markdown content using glow. Returns True if successful, False otherwise."""
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
-            f.write(markdown_content)
-            temp_file = f.name
-
-        # Use glow to display the markdown
-        result = subprocess.run(["glow", temp_file], check=True)
-        os.unlink(temp_file)  # Clean up temp file
-        return True
-    except (subprocess.CalledProcessError, OSError):
-        if os.path.exists(temp_file):
-            os.unlink(temp_file)  # Clean up on error
-        return False
-
-
 def confirm_action(message: str, force: bool = False, yes_flag: bool = False) -> bool:
-    """Confirm an action with the user.
-    
-    Respects automation mode and force/yes flags for non-interactive use.
-    
-    Args:
-        message: The confirmation message to display
-        force: Force flag from command (skip confirmation)
-        yes_flag: Global yes flag from command (auto-confirm)
-        
-    Returns:
-        True if action confirmed, False otherwise
-    """
-    # Auto-confirm in automation mode or if force/yes flags are set
+    """Confirm an action with the user."""
     if _automation_mode or force or yes_flag:
         return True
     
-    return typer.confirm(message)
+    response = input(f"{message} [y/N]: ").strip().lower()
+    return response in ('y', 'yes')
 
 
 def load_from_file_if_needed(value: str | None) -> str | None:
-    """Load content from a file if the value starts with @.
-    
-    This mimics AWS CLI behavior where @filename loads the file content.
-    
-    Args:
-        value: The value to process, potentially starting with @
-        
-    Returns:
-        The file content if value starts with @, otherwise the original value
-        
-    Raises:
-        typer.Exit: If file cannot be read
-    """
-    if value is None:
-        return None
-        
-    if not value.startswith("@"):
+    """Load content from a file if the value starts with @."""
+    if value is None or not value.startswith("@"):
         return value
-        
-    # Remove @ prefix and get file path
-    file_path = Path(value[1:])
     
+    file_path = Path(value[1:])
     try:
-        # Read file content
-        content = file_path.read_text(encoding="utf-8").strip()
-        return content
+        return file_path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
-        console.print(f"[red]Error:[/red] File not found: {file_path}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: File not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
     except PermissionError:
-        console.print(f"[red]Error:[/red] Permission denied reading: {file_path}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: Permission denied reading: {file_path}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Error:[/red] Failed to read {file_path}: {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: Failed to read {file_path}: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@app.command("add")
-@app.command("new")  # Alias for 'add' command
-def add_task(
-    title: str = typer.Argument(..., help="Task title (required)"),
-    description: str | None = typer.Option(None, "--description", "-d", help="Task description"),
-    priority: Priority | None = typer.Option(None, "--priority", "-p", help="Task priority"),
-    due: str | None = typer.Option(None, "--due", help="Due date (YYYY-MM-DD)"),
-    status: TaskStatus | None = typer.Option(None, "--status", "-s", help="Initial status"),
-    jira: str | None = typer.Option(None, "--jira", "-j", help="JIRA issue keys (comma-separated)"),
-    tags: str | None = typer.Option(None, "--tags", "-t", help="Tags (comma-separated)"),
-) -> None:
+# Command implementations
+
+def cmd_add(args):
     """Create a new task."""
     try:
         service = get_service()
+        description = load_from_file_if_needed(args.description)
         
-        # Load description from file if needed
-        description = load_from_file_if_needed(description)
-
-        # Parse due date if provided
-        due_date: date | None = None
-        if due:
+        due_date = None
+        if args.due:
             try:
-                due_date = datetime.strptime(due, "%Y-%m-%d").date()
+                due_date = datetime.strptime(args.due, "%Y-%m-%d").date()
             except ValueError:
-                console.print("[red]Error:[/red] Invalid date format. Use YYYY-MM-DD", style="bold")
-                raise typer.Exit(1)
-
-        # Create task (using defaults for priority/status if not provided)
+                print("Error: Invalid date format. Use YYYY-MM-DD", file=sys.stderr)
+                sys.exit(1)
+        
         task = service.create_task(
-            title=title,
+            title=args.title,
             description=description,
-            priority=priority if priority is not None else Priority.MEDIUM,
+            priority=Priority[args.priority.upper()] if args.priority else Priority.MEDIUM,
             due_date=due_date,
-            status=status if status is not None else TaskStatus.PENDING,
-            jira_issues=jira,
-            tags=tags,
+            status=TaskStatus[args.status.upper()] if args.status else TaskStatus.PENDING,
+            jira_issues=args.jira,
+            tags=args.tags,
         )
-
-        console.print(f"[green]✓[/green] Created task #{task.id}: {task.title}", style="bold")
-
-        # Show task details
+        
+        print(f"✓ Created task #{task.id}: {task.title}")
         if description:
-            console.print(f"  Description: {description}")
-        if priority:
-            console.print(f"  Priority: {priority.value}")
+            print(f"  Description: {description}")
+        if args.priority:
+            print(f"  Priority: {args.priority}")
         if due_date:
-            console.print(f"  Due: {due_date}")
-        if status:
-            console.print(f"  Status: {status.value}")
-        if jira:
-            console.print(f"  JIRA: {jira}")
-        if tags:
-            console.print(f"  Tags: {tags}")
-
+            print(f"  Due: {due_date}")
+        if args.status:
+            print(f"  Status: {args.status}")
+        if args.jira:
+            print(f"  JIRA: {args.jira}")
+        if args.tags:
+            print(f"  Tags: {args.tags}")
+            
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@app.command("list")
-def list_tasks(
-    status: TaskStatus | None = typer.Option(None, "--status", "-s", help="Filter by status"),
-    priority: Priority | None = typer.Option(None, "--priority", "-p", help="Filter by priority"),
-    tag: str | None = typer.Option(None, "--tag", help="Filter by tag (partial match)"),
-    limit: int = typer.Option(20, "--limit", "-l", help="Maximum number of tasks to show"),
-    offset: int = typer.Option(0, "--offset", help="Number of tasks to skip"),
-    format: str = typer.Option("table", "--format", "-f", help="Output format (table, simple, json)"),
-    all: bool = typer.Option(False, "--all", "-a", help="Show all tasks including completed, cancelled, and archived"),
-    show_tags: bool = typer.Option(False, "--show-tags", help="Show tags column in table"),
-    show_jira: int | None = typer.Option(None, "--show-jira", help="Show JIRA issues column. Optionally limit to N issues (e.g., --show-jira 2). Use 0 or omit value for all issues."),
-    show_created: bool = typer.Option(False, "--show-created", help="Show created date column in table"),
-    show_updated: bool = typer.Option(False, "--show-updated", help="Show updated date column in table"),
-) -> None:
-    """List tasks with optional filtering.
-    
-    By default, only shows open tasks (pending and in_progress).
-    Use --all to include completed, cancelled, and archived tasks.
-    Use --show-* flags to add additional columns to the table view.
-    """
+def cmd_list(args):
+    """List tasks with optional filtering."""
     try:
         service = get_service()
-
-        # If no status filter specified and --all not used, filter to open tasks only
-        if status is None and not all:
-            # Show only pending and in_progress tasks
+        
+        # Handle status filtering
+        status = TaskStatus[args.status.upper()] if args.status else None
+        priority = Priority[args.priority.upper()] if args.priority else None
+        
+        # If no status filter and --all not used, filter to open tasks
+        if status is None and not args.all:
             tasks_pending, total_pending = service.list_tasks(
                 status=TaskStatus.PENDING,
                 priority=priority,
-                tag=tag,
-                limit=limit,
-                offset=offset,
+                tag=args.tag,
+                limit=args.limit,
+                offset=args.offset,
             )
             tasks_in_progress, total_in_progress = service.list_tasks(
                 status=TaskStatus.IN_PROGRESS,
                 priority=priority,
-                tag=tag,
-                limit=limit,
+                tag=args.tag,
+                limit=args.limit,
                 offset=0,
             )
-            
-            # Combine and sort by id
-            tasks = sorted(tasks_pending + tasks_in_progress, key=lambda t: t.id or 0)
+            tasks = sorted(tasks_pending + tasks_in_progress, key=lambda t: t.id or 0)[:args.limit]
             total = total_pending + total_in_progress
-            
-            # Apply limit again after combining
-            tasks = tasks[:limit]
         else:
-            # Get tasks (service returns tuple of tasks and total count)
             tasks, total = service.list_tasks(
                 status=status,
                 priority=priority,
-                tag=tag,
-                limit=limit,
-                offset=offset,
+                tag=args.tag,
+                limit=args.limit,
+                offset=args.offset,
             )
-
+        
         if not tasks:
-            console.print("[yellow]No tasks found.[/yellow]")
+            print("No tasks found.")
             return
-
+        
         # Format output
-        if format == "json":
-            import json
+        if args.format == "json":
             task_dicts = [
                 {
                     "id": task.id,
@@ -354,32 +215,33 @@ def list_tasks(
                 }
                 for task in tasks
             ]
-            console.print(json.dumps(task_dicts, indent=2))
-        elif format == "simple":
+            print(json.dumps(task_dicts, indent=2))
+        elif args.format == "simple":
             for task in tasks:
                 status_icon = "✓" if task.status == TaskStatus.COMPLETED else "○"
                 due_str = f" (due: {task.due_date})" if task.due_date else ""
-                console.print(f"{status_icon} #{task.id}: {task.title}{due_str}")
+                print(f"{status_icon} #{task.id}: {task.title}{due_str}")
         else:  # table format
-            table = Table(title=f"Tasks ({len(tasks)} of {total})")
-            table.add_column("ID", style="cyan", no_wrap=True)
-            table.add_column("Title", style="white")
-            table.add_column("Status", style="yellow")
-            table.add_column("Priority", style="magenta")
-            table.add_column("Due Date", style="red")
+            # Header
+            print(f"\nTasks ({len(tasks)} of {total})")
+            print("-" * 100)
             
-            # Add optional columns based on flags
-            if show_tags:
-                table.add_column("Tags", style="green")
-            if show_jira is not None:
-                table.add_column("JIRA", style="blue")
-            if show_created:
-                table.add_column("Created", style="dim")
-            if show_updated:
-                table.add_column("Updated", style="dim")
-
+            # Column headers
+            headers = ["ID", "Title", "Status", "Priority", "Due Date"]
+            if args.show_tags:
+                headers.append("Tags")
+            if args.show_jira is not None:
+                headers.append("JIRA")
+            if args.show_created:
+                headers.append("Created")
+            if args.show_updated:
+                headers.append("Updated")
+            
+            print(" | ".join(f"{h:<15}" for h in headers))
+            print("-" * 100)
+            
+            # Rows
             for task in tasks:
-                # Status with icons
                 status_icons = {
                     TaskStatus.PENDING: "○",
                     TaskStatus.IN_PROGRESS: "◐",
@@ -388,100 +250,63 @@ def list_tasks(
                     TaskStatus.ARCHIVED: "✖",
                 }
                 status_display = f"{status_icons.get(task.status, '?')} {task.status.value}"
-
-                # Priority colors
-                priority_colors = {
-                    Priority.LOW: "dim",
-                    Priority.MEDIUM: "yellow",
-                    Priority.HIGH: "orange1",
-                    Priority.URGENT: "red bold",
-                }
-                priority_style = priority_colors.get(task.priority, "white")
-
-                # Due date with overdue indicator
+                
                 due_display = ""
                 if task.due_date:
-                    is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
-                    if is_overdue:
-                        due_display = f"[red bold]{task.due_date} ⚠[/red bold]"
-                    else:
-                        due_display = str(task.due_date)
-
-                # Build row data starting with core columns
-                row_data = [
+                    is_overdue = (task.due_date < date.today() and 
+                                task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED])
+                    due_display = f"{task.due_date} {'⚠' if is_overdue else ''}"
+                
+                row = [
                     str(task.id),
-                    task.title,
+                    task.title[:40],
                     status_display,
-                    f"[{priority_style}]{task.priority.value}[/{priority_style}]",
+                    task.priority.value,
                     due_display,
                 ]
                 
-                # Add optional column data
-                if show_tags:
-                    tags_display = task.tags if task.tags else ""
-                    row_data.append(tags_display)
-                if show_jira is not None:
-                    # Format JIRA issues with optional limit
+                if args.show_tags:
+                    row.append(task.tags or "")
+                if args.show_jira is not None:
                     if task.jira_issues:
                         jira_list = [issue.strip() for issue in task.jira_issues.split(",")]
-                        # Limit to show_jira items if > 0, otherwise show all
-                        if show_jira > 0 and len(jira_list) > show_jira:
-                            jira_display = ", ".join(jira_list[:show_jira]) + f" (+{len(jira_list) - show_jira})"
+                        if args.show_jira > 0 and len(jira_list) > args.show_jira:
+                            jira_display = ", ".join(jira_list[:args.show_jira]) + f" (+{len(jira_list) - args.show_jira})"
                         else:
                             jira_display = ", ".join(jira_list)
                     else:
                         jira_display = ""
-                    row_data.append(jira_display)
-                if show_created:
-                    created_display = task.created_at.strftime("%Y-%m-%d") if task.created_at else ""
-                    row_data.append(created_display)
-                if show_updated:
-                    updated_display = task.updated_at.strftime("%Y-%m-%d") if task.updated_at else ""
-                    row_data.append(updated_display)
+                    row.append(jira_display)
+                if args.show_created:
+                    row.append(task.created_at.strftime("%Y-%m-%d") if task.created_at else "")
+                if args.show_updated:
+                    row.append(task.updated_at.strftime("%Y-%m-%d") if task.updated_at else "")
                 
-                table.add_row(*row_data)
-
-            console.print(table)
-
+                print(" | ".join(f"{str(v):<15}" for v in row))
+            
+            print("-" * 100)
+            
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@app.command("show")
-def show_task(
-    task_id: int = typer.Argument(..., help="Task ID to display"),
-) -> None:
+def cmd_show(args):
     """Show detailed information about a specific task."""
     try:
         service = get_service()
         settings = get_settings()
-        task = service.get_task(task_id)
-
-        # Try to use glow for enhanced markdown display
-        if is_glow_available():
-            markdown_content = format_task_as_markdown(task, service, settings)
-            if display_with_glow(markdown_content):
-                return  # Successfully displayed with glow
-            else:
-                # Glow failed, inform user and fall back to regular display
-                console.print("[yellow]Note:[/yellow] glow encountered an issue, falling back to regular display")
-        else:
-            # Inform user about glow enhancement option
-            console.print("[dim]💡 Tip: Install 'glow' for enhanced markdown display of tasks[/dim]")
-
-        # Fall back to regular rich console display
-        # Create a panel with task details
-        console.print(f"\n[bold cyan]Task #{task.id}[/bold cyan]")
-        console.print(f"[bold]Title:[/bold] {task.title}")
-
+        task = service.get_task(args.task_id)
+        
+        print(f"\nTask #{task.id}")
+        print(f"Title: {task.title}")
+        
         if task.description:
-            console.print(f"[bold]Description:[/bold]\n  {task.description}")
-
-        # Status with icon
+            print(f"Description:\n  {task.description}")
+        
         status_icons = {
             TaskStatus.PENDING: "○",
             TaskStatus.IN_PROGRESS: "◐",
@@ -490,295 +315,329 @@ def show_task(
             TaskStatus.ARCHIVED: "✖",
         }
         status_icon = status_icons.get(task.status, "?")
-        console.print(f"[bold]Status:[/bold] {status_icon} {task.status.value}")
-
-        # Priority with color
-        priority_colors = {
-            Priority.LOW: "dim",
-            Priority.MEDIUM: "yellow",
-            Priority.HIGH: "orange1",
-            Priority.URGENT: "red bold",
-        }
-        priority_style = priority_colors.get(task.priority, "white")
-        console.print(f"[bold]Priority:[/bold] [{priority_style}]{task.priority.value}[/{priority_style}]")
-
-        # JIRA issues with clickable links
+        print(f"Status: {status_icon} {task.status.value}")
+        print(f"Priority: {task.priority.value}")
+        
         if task.jira_issues:
             jira_links = service.format_jira_links(task.jira_issues, settings.atlassian.jira_url)
             if jira_links:
-                console.print(f"[bold]JIRA Issues:[/bold]")
+                print("JIRA Issues:")
                 for issue_key, url in jira_links:
-                    console.print(f"  • [link={url}]{issue_key}[/link] ({url})")
+                    print(f"  - {issue_key}: {url}")
             else:
-                # No JIRA URL configured, just show the keys
-                console.print(f"[bold]JIRA Issues:[/bold] {task.jira_issues}")
-
-        # Tags
+                print(f"JIRA Issues: {task.jira_issues}")
+        
         if task.tags:
-            tag_list = [f"[cyan]{tag.strip()}[/cyan]" for tag in task.tags.split(",")]
-            console.print(f"[bold]Tags:[/bold] {', '.join(tag_list)}")
-
-        # Attachments
+            print(f"Tags: {task.tags}")
+        
         attachments = service.list_attachments(task.id)
         if attachments:
-            console.print(f"[bold]Attachments:[/bold] {len(attachments)} file(s) - use 'tasks attach list {task.id}' to view")
-
-        # Dates
+            print(f"Attachments: {len(attachments)} file(s) - use 'tasks attach list {task.id}' to view")
+        
         if task.due_date:
-            is_overdue = task.due_date < date.today() and task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED]
-            if is_overdue:
-                console.print(f"[bold]Due:[/bold] [red bold]{task.due_date} ⚠ OVERDUE[/red bold]")
-            else:
-                console.print(f"[bold]Due:[/bold] {task.due_date}")
-
-        console.print(f"[bold]Created:[/bold] {task.created_at.strftime('%Y-%m-%d %H:%M')}")
+            is_overdue = (task.due_date < date.today() and 
+                        task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED])
+            print(f"Due: {task.due_date} {'⚠ OVERDUE' if is_overdue else ''}")
+        
+        print(f"Created: {task.created_at.strftime('%Y-%m-%d %H:%M')}")
         if task.updated_at:
-            console.print(f"[bold]Updated:[/bold] {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
-
-        console.print()  # Empty line
-
+            print(f"Updated: {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
+        print()
+        
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@app.command("update")
-def update_task(
-    task_id: int = typer.Argument(..., help="Task ID to update"),
-    title: str | None = typer.Option(None, "--title", "-t", help="New title"),
-    description: str | None = typer.Option(None, "--description", "-d", help="New description"),
-    priority: Priority | None = typer.Option(None, "--priority", "-p", help="New priority"),
-    status: TaskStatus | None = typer.Option(None, "--status", "-s", help="New status"),
-    due: str | None = typer.Option(None, "--due", help="New due date (YYYY-MM-DD)"),
-    jira: str | None = typer.Option(None, "--jira", "-j", help="JIRA issue keys (comma-separated)"),
-    tags: str | None = typer.Option(None, "--tags", help="Tags (comma-separated)"),
-    clear_description: bool = typer.Option(False, "--clear-description", help="Clear the description"),
-    clear_due: bool = typer.Option(False, "--clear-due", help="Clear the due date"),
-    clear_jira: bool = typer.Option(False, "--clear-jira", help="Clear JIRA issues"),
-    clear_tags: bool = typer.Option(False, "--clear-tags", help="Clear tags"),
-) -> None:
+def cmd_update(args):
     """Update an existing task."""
     try:
         service = get_service()
+        description = load_from_file_if_needed(args.description)
         
-        # Load description from file if needed (unless clearing)
-        if not clear_description:
-            description = load_from_file_if_needed(description)
-
-        # Parse due date if provided
         due_date = None
-        if due:
+        if args.due:
             try:
-                due_date = datetime.strptime(due, "%Y-%m-%d").date()
+                due_date = datetime.strptime(args.due, "%Y-%m-%d").date()
             except ValueError:
-                console.print("[red]Error:[/red] Invalid date format. Use YYYY-MM-DD", style="bold")
-                raise typer.Exit(1)
-
-        # Handle clearing fields
-        if clear_description:
-            description = ""
-        if clear_due:
-            due_date = None
-        if clear_jira:
-            jira = ""
-        if clear_tags:
-            tags = ""
-
-        # Update task
-        task = service.update_task(
-            task_id=task_id,
-            title=title,
-            description=description,
-            priority=priority,
-            status=status,
-            due_date=due_date,
-            jira_issues=jira,
-            tags=tags,
-        )
-
-        # Display what was updated
-        console.print(f"[green]✓[/green] Updated task #{task.id}: {task.title}", style="bold")
+                print("Error: Invalid date format. Use YYYY-MM-DD", file=sys.stderr)
+                sys.exit(1)
         
-        # Show updated fields
-        updates = []
-        if title is not None:
-            updates.append(f"Title: {title}")
+        updates = {}
+        if args.title:
+            updates['title'] = args.title
         if description is not None:
-            if clear_description:
-                updates.append("Description: [dim](cleared)[/dim]")
-            else:
-                # Show first 50 chars of description
-                desc_preview = description[:50] + "..." if len(description) > 50 else description
-                updates.append(f"Description: {desc_preview}")
-        if priority is not None:
-            updates.append(f"Priority: {priority.value}")
-        if status is not None:
-            updates.append(f"Status: {status.value}")
-        if due_date is not None or clear_due:
-            if clear_due:
-                updates.append("Due date: [dim](cleared)[/dim]")
-            else:
-                updates.append(f"Due date: {due_date}")
-        if jira is not None:
-            if clear_jira:
-                updates.append("JIRA issues: [dim](cleared)[/dim]")
-            else:
-                updates.append(f"JIRA issues: {jira}")
-        if tags is not None:
-            if clear_tags:
-                updates.append("Tags: [dim](cleared)[/dim]")
-            else:
-                updates.append(f"Tags: {tags}")
+            updates['description'] = description
+        if args.priority:
+            updates['priority'] = Priority[args.priority.upper()]
+        if args.status:
+            updates['status'] = TaskStatus[args.status.upper()]
+        if due_date:
+            updates['due_date'] = due_date
+        if args.jira:
+            updates['jira_issues'] = args.jira
+        if args.tags:
+            updates['tags'] = args.tags
         
-        if updates:
-            console.print("\n[bold]Updated fields:[/bold]")
-            for update in updates:
-                console.print(f"  • {update}")
-
+        # Handle clear flags
+        if args.clear_description:
+            updates['description'] = None
+        if args.clear_due:
+            updates['due_date'] = None
+        if args.clear_jira:
+            updates['jira_issues'] = None
+        if args.clear_tags:
+            updates['tags'] = None
+        
+        task = service.update_task(args.task_id, **updates)
+        print(f"✓ Updated task #{task.id}: {task.title}")
+        
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@app.command("complete")
-def complete_task(
-    task_id: int = typer.Argument(..., help="Task ID to mark as complete"),
-) -> None:
+def cmd_complete(args):
     """Mark a task as complete."""
     try:
         service = get_service()
-        task = service.mark_complete(task_id)
-
-        console.print(f"[green]✓ Completed task #{task.id}: {task.title}[/green]", style="bold")
-
+        task = service.update_task(args.task_id, status=TaskStatus.COMPLETED)
+        print(f"✓ Completed task #{task.id}: {task.title}")
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@app.command("delete")
-def delete_task(
-    task_id: int = typer.Argument(..., help="Task ID to delete"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt"),
-) -> None:
+def cmd_delete(args):
     """Delete a task permanently."""
     try:
         service = get_service()
-
-        # Get task for confirmation
-        task = service.get_task(task_id)
-
-        # Confirm deletion
-        if not confirm_action(f"Delete task #{task_id}: '{task.title}'?", force=force):
-            console.print("[yellow]Deletion cancelled.[/yellow]")
-            raise typer.Exit(0)
-
-        service.delete_task(task_id)
-        console.print(f"[red]✓ Deleted task #{task_id}[/red]", style="bold")
-
+        task = service.get_task(args.task_id)
+        
+        if not args.force and not _automation_mode:
+            if not confirm_action(f"Delete task #{task.id} '{task.title}'?"):
+                print("Cancelled.")
+                return
+        
+        service.delete_task(args.task_id)
+        print(f"✓ Deleted task #{args.task_id}")
+        
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@app.command("tags")
-def list_tags() -> None:
+def cmd_tags(args):
     """List all unique tags currently used across all tasks."""
     try:
         service = get_service()
-        tags = service.get_all_used_tags()
+        tags = service.list_tags()
         
         if not tags:
-            console.print("[yellow]No tags found.[/yellow]")
+            print("No tags found.")
             return
         
-        console.print(f"[bold]Found {len(tags)} unique tags:[/bold]\n")
+        print(f"\nTags ({len(tags)} total):")
         for tag in tags:
-            console.print(f"  • {tag}")
+            print(f"  - {tag}")
+        print()
         
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-# Configuration management subcommand group
-config_app = typer.Typer(help="Manage configuration")
-app.add_typer(config_app, name="config")
-
-
-@config_app.command("show")
-def config_show() -> None:
-    """Display current configuration."""
-    from taskmanager.config import get_settings
+def cmd_search(args):
+    """Search across all tasks and workspaces."""
+    try:
+        service = get_service()
+        
+        # Build filters
+        filters = {}
+        if args.status and args.status != "all":
+            filters["status"] = TaskStatus[args.status.upper()]
+        
+        # Get all tasks
+        all_tasks, total = service.list_tasks(**filters, limit=100)
+        
+        if total == 0:
+            print("No tasks found")
+            sys.exit(0)
+        
+        task_matches = []
+        workspace_matches = []
+        
+        # Search task metadata
+        if args.tasks:
+            query_lower = args.query.lower() if not args.case_sensitive else args.query
+            
+            for task in all_tasks:
+                matches = []
+                
+                title_check = task.title.lower() if not args.case_sensitive else task.title
+                if query_lower in title_check:
+                    matches.append("title")
+                
+                if task.description:
+                    desc_check = task.description.lower() if not args.case_sensitive else task.description
+                    if query_lower in desc_check:
+                        matches.append("description")
+                
+                if task.tags:
+                    tags_check = task.tags.lower() if not args.case_sensitive else task.tags
+                    if query_lower in tags_check:
+                        matches.append("tags")
+                
+                if task.jira_issues:
+                    jira_check = task.jira_issues.lower() if not args.case_sensitive else task.jira_issues
+                    if query_lower in jira_check:
+                        matches.append("JIRA")
+                
+                if matches:
+                    task_matches.append({"task": task, "fields": matches})
+        
+        # Search workspaces
+        if args.workspaces:
+            for task in all_tasks:
+                if not task.workspace_path or not task.id:
+                    continue
+                
+                workspace_path = service.get_workspace_path(task.id)
+                if not workspace_path or not workspace_path.exists():
+                    continue
+                
+                try:
+                    rg_args = ["rg", "--color", "never", "--files-with-matches", "--max-count", "5"]
+                    
+                    if not args.case_sensitive:
+                        rg_args.append("--ignore-case")
+                    
+                    if args.pattern != "*":
+                        rg_args.extend(["--glob", args.pattern])
+                    
+                    rg_args.extend(["--glob", "!.git", "--glob", "!tmp/*", "--glob", "!*.pyc", "--glob", "!__pycache__"])
+                    rg_args.extend([args.query, str(workspace_path)])
+                    
+                    result = subprocess.run(rg_args, capture_output=True, text=True, timeout=5)
+                    
+                    if result.returncode == 0:
+                        matched_files = result.stdout.strip().split("\n")
+                        matched_files = [f.replace(str(workspace_path) + "/", "") for f in matched_files if f]
+                        workspace_matches.append({"task": task, "files": matched_files})
+                
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    continue
+        
+        # Display results
+        if not task_matches and not workspace_matches:
+            print(f"No matches found for: {args.query}")
+            print(f"Searched: {total} task(s)")
+            return
+        
+        print(f"Search Results for: {args.query}\n")
+        print(f"Searched: {total} task(s)")
+        print(f"Found: {len(task_matches)} task match(es), {len(workspace_matches)} workspace match(es)\n")
+        
+        # Show task matches
+        if task_matches:
+            print("Task Metadata Matches:")
+            for match in task_matches[:20]:
+                task = match["task"]
+                fields = ", ".join(match["fields"])
+                status_emoji = {"pending": "⭕", "in_progress": "🔄", "completed": "✅", "cancelled": "❌", "archived": "📦"}.get(task.status.value, "❓")
+                print(f"{status_emoji} Task #{task.id}: {task.title}")
+                print(f"   Matched in: {fields}")
+                if task.workspace_path:
+                    print("   📁 Has workspace")
+                print()
+        
+        # Show workspace matches
+        if workspace_matches:
+            print("Workspace Content Matches:")
+            for match in workspace_matches[:20]:
+                task = match["task"]
+                files = match["files"]
+                status_emoji = {"pending": "⭕", "in_progress": "🔄", "completed": "✅", "cancelled": "❌", "archived": "📦"}.get(task.status.value, "❓")
+                print(f"{status_emoji} Task #{task.id}: {task.title}")
+                print(f"   Found in {len(files)} file(s):")
+                for f in files[:5]:
+                    print(f"      - {f}")
+                if len(files) > 5:
+                    print(f"      ... and {len(files) - 5} more")
+                print()
     
+    except FileNotFoundError:
+        print("Error: ripgrep not found. Install with: brew install ripgrep", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
+# Config sub-commands
+def cmd_config_show(args):
+    """Display current configuration."""
     settings = get_settings()
     
-    table = Table(title="Current Configuration")
-    table.add_column("Setting", style="cyan")
-    table.add_column("Value", style="green")
-    
-    table.add_row("Profile", settings.profile)
-    table.add_row("Config Directory", str(settings.get_config_dir()))
-    table.add_row("Data Directory", str(settings.get_data_dir()))
-    table.add_row("Database URL", settings.get_database_url())
-    table.add_row("Task List Limit", str(settings.defaults.task_limit))
-    table.add_row("Max Task Limit", str(settings.defaults.max_task_limit))
-    table.add_row("Log Level", settings.logging.level)
-    table.add_row("MCP Server Name", settings.mcp.server_name)
-    
-    console.print(table)
+    print("\nCurrent Configuration")
+    print("-" * 50)
+    print(f"Profile:           {settings.profile}")
+    print(f"Config Directory:  {settings.get_config_dir()}")
+    print(f"Data Directory:    {settings.get_data_dir()}")
+    print(f"Database URL:      {settings.get_database_url()}")
+    print(f"Task List Limit:   {settings.defaults.task_limit}")
+    print(f"Max Task Limit:    {settings.defaults.max_task_limit}")
+    print(f"Log Level:         {settings.logging.level}")
+    print(f"MCP Server Name:   {settings.mcp.server_name}")
+    print()
 
 
-@config_app.command("path")
-def config_path() -> None:
+def cmd_config_path(args):
     """Show configuration file location."""
     from taskmanager.config import get_user_config_path, get_project_config_path
     
     user_config = get_user_config_path()
     project_config = get_project_config_path()
     
-    console.print(f"[bold]User config:[/bold] {user_config}")
+    print(f"User config: {user_config}")
     if user_config.exists():
-        console.print("  [green]✓ exists[/green]")
+        print("  ✓ exists")
     else:
-        console.print("  [yellow]✗ not found[/yellow]")
+        print("  ✗ not found")
     
     if project_config:
-        console.print(f"\n[bold]Project config:[/bold] {project_config}")
+        print(f"\nProject config: {project_config}")
         if project_config.exists():
-            console.print("  [green]✓ exists[/green]")
+            print("  ✓ exists")
         else:
-            console.print("  [yellow]✗ not found[/yellow]")
+            print("  ✗ not found")
     else:
-        console.print("\n[yellow]Not in a git repository[/yellow]")
+        print("\nNot in a git repository")
 
 
-@config_app.command("edit")
-def config_edit() -> None:
+def cmd_config_edit(args):
     """Open configuration file in editor."""
-    import os
-    import subprocess
     from taskmanager.config import get_user_config_path, create_default_config
     
     config_path = get_user_config_path()
     
     # Create config if it doesn't exist
     if not config_path.exists():
-        console.print("[yellow]Config file doesn't exist. Creating default...[/yellow]")
+        print("Config file doesn't exist. Creating default...")
         create_default_config(config_path)
-        console.print(f"[green]✓ Created {config_path}[/green]")
+        print(f"✓ Created {config_path}")
     
     # Try to find editor
     editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "nano"))
@@ -786,251 +645,91 @@ def config_edit() -> None:
     try:
         subprocess.run([editor, str(config_path)], check=True)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        console.print(f"[red]Error opening editor '{editor}':[/red] {e}", style="bold")
-        console.print(f"\nConfig file location: {config_path}")
-        raise typer.Exit(1)
+        print(f"Error opening editor '{editor}': {e}", file=sys.stderr)
+        print(f"\nConfig file location: {config_path}")
+        sys.exit(1)
 
 
-@config_app.command("validate")
-def config_validate() -> None:
-    """Validate configuration file."""
-    from taskmanager.config import find_config_files, get_settings
-    import tomllib
-    
-    config_files = find_config_files()
-    
-    if not config_files:
-        console.print("[yellow]No configuration files found.[/yellow]")
-        return
-    
-    all_valid = True
-    
-    for config_file in config_files:
-        console.print(f"\n[bold]Validating {config_file}...[/bold]")
-        
-        try:
-            # Try to load as TOML
-            with open(config_file, "rb") as f:
-                tomllib.load(f)
-            console.print("  [green]✓ TOML syntax valid[/green]")
-            
-            # Try to load settings
-            get_settings()
-            console.print("  [green]✓ Configuration valid[/green]")
-            
-        except Exception as e:
-            console.print(f"  [red]✗ Error:[/red] {e}")
-            all_valid = False
-    
-    if all_valid:
-        console.print("\n[green bold]✓ All configuration files are valid[/green bold]")
-    else:
-        console.print("\n[red bold]✗ Configuration validation failed[/red bold]")
-        raise typer.Exit(1)
-
-
-@config_app.command("init")
-def config_init(
-    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing config"),
-) -> None:
-    """Create or reset configuration file."""
-    from taskmanager.config import get_user_config_path, create_default_config
-    
-    config_path = get_user_config_path()
-    
-    if config_path.exists() and not force:
-        console.print(f"[yellow]Config file already exists: {config_path}[/yellow]")
-        console.print("Use --force to overwrite")
-        raise typer.Exit(1)
-    
-    create_default_config(config_path)
-    console.print(f"[green]✓ Created configuration file: {config_path}[/green]")
-    console.print("\nDefault configuration:")
-    console.print("  • Profile: default")
-    console.print("  • Database: ~/.config/taskmanager/taskmanager/tasks.db")
-    console.print("  • Dev database: ~/.config/taskmanager/taskmanager/tasks-dev.db")
-    console.print("  • Test database: in-memory")
-
-
-@app.callback()
-def main(
-    version: bool = typer.Option(False, "--version", "-V", help="Show version and exit", callback=version_callback, is_eager=True),
-    config: Path | None = typer.Option(
-        None,
-        "--config",
-        "-c",
-        help="Path to configuration file",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        readable=True,
-    ),
-    profile: str | None = typer.Option(
-        None,
-        "--profile",
-        "-p",
-        help="Configuration profile (default, dev, test)",
-    ),
-    database: str | None = typer.Option(
-        None,
-        "--database",
-        "-d",
-        help="Database URL override",
-    ),
-) -> None:
-    """
-    Tasks - A powerful CLI task manager.
-
-    Manage your tasks, deadlines, and projects from the command line.
-    
-    Use global options to override configuration:
-    
-    \b
-    • --config: Use specific config file
-    • --profile: Switch between default/dev/test profiles  
-    • --database: Override database URL directly
-    
-    Examples:
-    
-    \b
-    tasks --profile dev list
-    tasks --database sqlite:///custom.db add "Test task"
-    tasks --config ./my-config.toml list
-    """
-    from taskmanager.config import get_settings
-
-    # Get settings and apply overrides
-    settings = get_settings()
-    
-    # Apply CLI overrides
-    if profile:
-        # Override the profile attribute directly
-        settings.profile = profile
-    if database:
-        settings.set_override("database_url", database)
-    # Note: --config would require modifying load_toml_config to accept custom path
-
-
-# Attachment management subcommand group
-attach_app = typer.Typer(help="Manage task attachments")
-app.add_typer(attach_app, name="attach")
-
-
-@attach_app.command("add")
-def attach_add(
-    task_id: int = typer.Argument(..., help="Task ID to attach file to"),
-    file_path: Path = typer.Argument(..., help="Path to file to attach", exists=True),
-) -> None:
+# Attachment sub-commands
+def cmd_attach_add(args):
     """Attach a file to a task."""
     try:
         service = get_service()
+        file_path = Path(args.file_path)
         
         if not file_path.is_file():
-            console.print(f"[red]Error:[/red] Not a file: {file_path}", style="bold")
-            raise typer.Exit(1)
+            print(f"Error: Not a file: {file_path}", file=sys.stderr)
+            sys.exit(1)
         
-        # Add the attachment
-        metadata = service.add_attachment(task_id, file_path)
+        metadata = service.add_attachment(args.task_id, file_path)
         
-        console.print(f"[green]✓[/green] Attached file to task #{task_id}", style="bold")
-        console.print(f"  Original name: {metadata['original_name']}")
-        console.print(f"  Stored as: {metadata['filename']}")
-        console.print(f"  Size: {metadata['size']:,} bytes")
-        
+        print(f"✓ Attached file to task #{args.task_id}")
+        print(f"  Original name: {metadata['original_name']}")
+        print(f"  Stored as: {metadata['filename']}")
+        print(f"  Size: {metadata['size']:,} bytes")
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@attach_app.command("list")
-def attach_list(
-    task_id: int = typer.Argument(..., help="Task ID to list attachments for"),
-) -> None:
+def cmd_attach_list(args):
     """List all attachments for a task."""
     try:
         service = get_service()
-        attachments = service.list_attachments(task_id)
+        attachments = service.list_attachments(args.task_id)
         
         if not attachments:
-            console.print(f"[yellow]Task #{task_id} has no attachments.[/yellow]")
+            print(f"Task #{args.task_id} has no attachments.")
             return
         
-        table = Table(title=f"Attachments for Task #{task_id}")
-        table.add_column("Filename", style="cyan")
-        table.add_column("Original Name", style="white")
-        table.add_column("Size", style="green", justify="right")
-        table.add_column("Added", style="yellow")
+        print(f"\nAttachments for Task #{args.task_id}")
+        print("-" * 80)
+        print(f"{'Filename':<30} {'Original Name':<30} {'Size':<10} {'Added':<20}")
+        print("-" * 80)
         
         for attachment in attachments:
             size_kb = attachment["size"] / 1024
             size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
-            
             added_dt = datetime.fromisoformat(attachment["added_at"])
             added_str = added_dt.strftime("%Y-%m-%d %H:%M")
             
-            table.add_row(
-                attachment["filename"],
-                attachment["original_name"],
-                size_str,
-                added_str,
-            )
+            print(f"{attachment['filename']:<30} {attachment['original_name']:<30} {size_str:<10} {added_str:<20}")
         
-        console.print(table)
-        
+        print()
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@attach_app.command("remove")
-def attach_remove(
-    task_id: int = typer.Argument(..., help="Task ID"),
-    filename: str = typer.Argument(..., help="Filename of attachment to remove"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
-) -> None:
+def cmd_attach_remove(args):
     """Remove an attachment from a task."""
     try:
         service = get_service()
         
-        # Confirm removal
-        if not confirm_action(f"Remove attachment '{filename}' from task #{task_id}?", force=force):
-            console.print("[yellow]Removal cancelled.[/yellow]")
-            raise typer.Exit(0)
+        if not confirm_action(f"Remove attachment '{args.filename}' from task #{args.task_id}?", force=args.force):
+            print("Removal cancelled.")
+            sys.exit(0)
         
-        removed = service.remove_attachment(task_id, filename)
+        removed = service.remove_attachment(args.task_id, args.filename)
         
         if removed:
-            console.print(f"[green]✓[/green] Removed attachment '{filename}' from task #{task_id}", style="bold")
+            print(f"✓ Removed attachment '{args.filename}' from task #{args.task_id}")
         else:
-            console.print(f"[yellow]Attachment '{filename}' not found.[/yellow]")
-            raise typer.Exit(1)
-        
+            print(f"Attachment '{args.filename}' not found.")
+            sys.exit(1)
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@attach_app.command("open")
-def attach_open(
-    task_id: int = typer.Argument(..., help="Task ID"),
-    filename: str = typer.Argument(..., help="Filename of attachment to open"),
-) -> None:
+def cmd_attach_open(args):
     """Open an attachment file."""
     try:
-        import subprocess
-        import sys
-        
         service = get_service()
-        file_path = service.get_attachment_path(task_id, filename)
+        file_path = service.get_attachment_path(args.task_id, args.filename)
         
         # Open the file using system default application
         if sys.platform == "darwin":  # macOS
@@ -1040,141 +739,82 @@ def attach_open(
         else:  # Linux
             subprocess.run(["xdg-open", str(file_path)])
         
-        console.print(f"[green]Opened:[/green] {filename}")
-        
+        print(f"Opened: {args.filename}")
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@attach_app.command("path")
-def attach_path(
-    task_id: int = typer.Argument(..., help="Task ID"),
-    filename: str = typer.Argument(..., help="Filename of attachment"),
-) -> None:
-    """Show the full path to an attachment file."""
-    try:
-        service = get_service()
-        file_path = service.get_attachment_path(task_id, filename)
-        
-        console.print(str(file_path))
-        
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-
-
-# Workspace management subcommand group
-workspace_app = typer.Typer(help="Manage task workspaces")
-app.add_typer(workspace_app, name="workspace")
-
-
-@workspace_app.command("create")
-def workspace_create(
-    task_id: int = typer.Argument(..., help="Task ID to create workspace for"),
-    no_git: bool = typer.Option(False, "--no-git", help="Skip git initialization"),
-) -> None:
+# Workspace sub-commands
+def cmd_workspace_create(args):
     """Create a persistent workspace for a task."""
     try:
         service = get_service()
-
-        # Create workspace
-        metadata = service.create_workspace(
-            task_id=task_id,
-            initialize_git=not no_git
-        )
-
-        console.print(f"[green]✓[/green] Created workspace for task #{task_id}", style="bold")
-        console.print(f"  Path: {metadata['workspace_path']}")
-        console.print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
-
+        metadata = service.create_workspace(task_id=args.task_id, initialize_git=not args.no_git)
+        
+        print(f"✓ Created workspace for task #{args.task_id}")
+        print(f"  Path: {metadata['workspace_path']}")
+        print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@workspace_app.command("info")
-def workspace_info(
-    task_id: int = typer.Argument(..., help="Task ID"),
-) -> None:
+def cmd_workspace_info(args):
     """Show workspace information for a task."""
     try:
         service = get_service()
-        metadata = service.get_workspace_info(task_id)
-
+        metadata = service.get_workspace_info(args.task_id)
+        
         if not metadata:
-            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
-            raise typer.Exit(0)
-
-        from datetime import datetime
-
-        console.print(f"[bold]Workspace for Task #{task_id}[/bold]")
-        console.print(f"  Path: {metadata['workspace_path']}")
-        console.print(f"  Created: {metadata['created_at']}")
-        console.print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
+            print(f"No workspace exists for task #{args.task_id}")
+            sys.exit(0)
+        
+        print(f"\nWorkspace for Task #{args.task_id}")
+        print(f"  Path: {metadata['workspace_path']}")
+        print(f"  Created: {metadata['created_at']}")
+        print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
         if metadata.get('last_accessed'):
-            console.print(f"  Last accessed: {metadata['last_accessed']}")
-
+            print(f"  Last accessed: {metadata['last_accessed']}")
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@workspace_app.command("path")
-def workspace_path(
-    task_id: int = typer.Argument(..., help="Task ID"),
-) -> None:
+def cmd_workspace_path(args):
     """Show the path to a task's workspace."""
     try:
         service = get_service()
-        path = service.get_workspace_path(task_id)
-
+        path = service.get_workspace_path(args.task_id)
+        
         if not path:
-            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
-            raise typer.Exit(0)
-
-        console.print(str(path))
-
+            print(f"No workspace exists for task #{args.task_id}")
+            sys.exit(0)
+        
+        print(str(path))
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@workspace_app.command("open")
-def workspace_open(
-    task_id: int = typer.Argument(..., help="Task ID"),
-) -> None:
-    """Open a task's workspace in Finder (macOS)."""
+def cmd_workspace_open(args):
+    """Open a task's workspace in Finder/Explorer."""
     try:
-        import subprocess
-        import sys
-
         service = get_service()
-        path = service.get_workspace_path(task_id)
-
+        path = service.get_workspace_path(args.task_id)
+        
         if not path:
-            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
-            raise typer.Exit(0)
-
+            print(f"No workspace exists for task #{args.task_id}")
+            sys.exit(0)
+        
         if not path.exists():
-            console.print(f"[red]Workspace directory does not exist:[/red] {path}")
-            raise typer.Exit(1)
-
+            print(f"Workspace directory does not exist: {path}", file=sys.stderr)
+            sys.exit(1)
+        
         # Open the directory
         if sys.platform == "darwin":  # macOS
             subprocess.run(["open", str(path)])
@@ -1182,108 +822,84 @@ def workspace_open(
             subprocess.run(["explorer", str(path)])
         else:  # Linux
             subprocess.run(["xdg-open", str(path)])
-
-        console.print(f"[green]Opened workspace:[/green] {path}")
-
+        
+        print(f"Opened workspace: {path}")
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@workspace_app.command("delete")
-def workspace_delete(
-    task_id: int = typer.Argument(..., help="Task ID"),
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
-) -> None:
+def cmd_workspace_delete(args):
     """Delete a task's workspace and all its contents."""
     try:
         service = get_service()
-
-        # Check if workspace exists
-        path = service.get_workspace_path(task_id)
+        path = service.get_workspace_path(args.task_id)
+        
         if not path:
-            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
-            raise typer.Exit(0)
-
-        # Confirm deletion
-        if not confirm_action(
-            f"Delete workspace for task #{task_id}? This will permanently remove all files in {path}",
-            force=force
-        ):
-            console.print("[yellow]Deletion cancelled.[/yellow]")
-            raise typer.Exit(0)
-
-        deleted = service.delete_workspace(task_id)
-
+            print(f"No workspace exists for task #{args.task_id}")
+            sys.exit(0)
+        
+        if not confirm_action(f"Delete workspace for task #{args.task_id}? This will permanently remove all files in {path}", force=args.force):
+            print("Deletion cancelled.")
+            sys.exit(0)
+        
+        deleted = service.delete_workspace(args.task_id)
+        
         if deleted:
-            console.print(f"[green]✓[/green] Deleted workspace for task #{task_id}", style="bold")
+            print(f"✓ Deleted workspace for task #{args.task_id}")
         else:
-            console.print(f"[yellow]Workspace not found.[/yellow]")
-            raise typer.Exit(1)
-
+            print("Workspace deletion failed.")
+            sys.exit(1)
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@workspace_app.command("list")
-def workspace_list(
-    task_id: int = typer.Argument(..., help="Task ID"),
-    subdirectory: str = typer.Option("", "--dir", "-d", help="Subdirectory to list"),
-    pattern: str = typer.Option("*", "--pattern", "-p", help="File pattern (e.g., *.py, *.md)"),
-) -> None:
+def cmd_workspace_list(args):
     """List files in a task's workspace."""
     try:
-        import datetime
-        from pathlib import Path
-
         service = get_service()
-        workspace_path = service.get_workspace_path(task_id)
-
+        workspace_path = service.get_workspace_path(args.task_id)
+        
         if not workspace_path:
-            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
-            raise typer.Exit(0)
-
-        # Build target path
-        target_path = Path(workspace_path) / subdirectory if subdirectory else Path(workspace_path)
-
+            print(f"No workspace exists for task #{args.task_id}")
+            sys.exit(0)
+        
+        target_path = Path(workspace_path) / args.subdirectory if args.subdirectory else Path(workspace_path)
+        
         if not target_path.exists():
-            console.print(f"[red]Directory not found:[/red] {target_path}")
-            raise typer.Exit(1)
-
+            print(f"Directory not found: {target_path}", file=sys.stderr)
+            sys.exit(1)
+        
         # Get matching files
-        if pattern == "*":
+        if args.pattern == "*":
             files = list(target_path.rglob("*"))
         else:
-            files = list(target_path.rglob(pattern))
-
+            files = list(target_path.rglob(args.pattern))
+        
         # Filter to only files
         files = [f for f in files if f.is_file()]
         files = [f for f in files if ".git" not in str(f) and "__pycache__" not in str(f)]
-
+        
         if not files:
-            console.print(f"[yellow]No files found[/yellow]")
-            raise typer.Exit(0)
-
+            print("No files found")
+            sys.exit(0)
+        
         # Sort by modification time
         files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-
-        console.print(f"[bold]Files in workspace for task #{task_id}[/bold]")
-        console.print(f"Path: {target_path}")
-        console.print(f"Pattern: {pattern}")
-        console.print(f"Found: {len(files)} file(s)\n")
-
+        
+        print(f"\nFiles in workspace for task #{args.task_id}")
+        print(f"Path: {target_path}")
+        print(f"Pattern: {args.pattern}")
+        print(f"Found: {len(files)} file(s)\n")
+        
         for f in files[:50]:
             relative_path = f.relative_to(workspace_path)
             size = f.stat().st_size
-            modified = datetime.datetime.fromtimestamp(f.stat().st_mtime)
-
+            modified = datetime.fromtimestamp(f.stat().st_mtime)
+            
             # Format size
             if size < 1024:
                 size_str = f"{size}B"
@@ -1291,285 +907,18 @@ def workspace_list(
                 size_str = f"{size / 1024:.1f}KB"
             else:
                 size_str = f"{size / (1024 * 1024):.1f}MB"
-
-            console.print(f"  {relative_path} - {size_str} - {modified.strftime('%Y-%m-%d %H:%M')}")
-
+            
+            print(f"  {relative_path} - {size_str} - {modified.strftime('%Y-%m-%d %H:%M')}")
+        
         if len(files) > 50:
-            console.print(f"\n... and {len(files) - 50} more files")
-
+            print(f"\n... and {len(files) - 50} more files")
+    
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
 
 
-@workspace_app.command("search")
-def workspace_search(
-    task_id: int = typer.Argument(..., help="Task ID"),
-    query: str = typer.Argument(..., help="Search query"),
-    pattern: str = typer.Option("*", "--pattern", "-p", help="File pattern (e.g., *.py, *.md)"),
-    case_sensitive: bool = typer.Option(False, "--case-sensitive", "-c", help="Case sensitive search"),
-    max_results: int = typer.Option(50, "--max", "-m", help="Maximum results"),
-) -> None:
-    """Search for content in a task's workspace."""
-    try:
-        import subprocess
-
-        service = get_service()
-        workspace_path = service.get_workspace_path(task_id)
-
-        if not workspace_path:
-            console.print(f"[yellow]No workspace exists for task #{task_id}[/yellow]")
-            raise typer.Exit(0)
-
-        if not workspace_path.exists():
-            console.print(f"[red]Workspace directory not found:[/red] {workspace_path}")
-            raise typer.Exit(1)
-
-        # Build ripgrep command
-        rg_args = [
-            "rg",
-            "--color", "always",
-            "--line-number",
-            "--heading",
-            "--max-count", str(max_results),
-        ]
-
-        if not case_sensitive:
-            rg_args.append("--ignore-case")
-
-        if pattern != "*":
-            rg_args.extend(["--glob", pattern])
-
-        rg_args.extend([
-            "--glob", "!.git",
-            "--glob", "!tmp/*",
-            "--glob", "!*.pyc",
-            "--glob", "!__pycache__",
-        ])
-
-        rg_args.extend([query, str(workspace_path)])
-
-        # Execute search
-        result = subprocess.run(
-            rg_args,
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-
-        if result.returncode == 1:
-            console.print(f"[yellow]No matches found for:[/yellow] {query}")
-            raise typer.Exit(0)
-
-        if result.returncode > 1:
-            console.print(f"[red]Search error:[/red] {result.stderr}")
-            raise typer.Exit(1)
-
-        # Display results
-        console.print(f"[bold]Search results for:[/bold] {query}")
-        console.print(f"Pattern: {pattern}\n")
-        console.print(result.stdout)
-
-    except subprocess.TimeoutExpired:
-        console.print("[red]Search timed out[/red]")
-        raise typer.Exit(1)
-    except FileNotFoundError:
-        console.print("[red]ripgrep not found.[/red] Install with: brew install ripgrep")
-        raise typer.Exit(1)
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-
-
-@app.command("search")
-def search_all(
-    query: str = typer.Argument(..., help="Search query"),
-    workspaces: bool = typer.Option(True, "--workspaces/--no-workspaces", help="Search workspace files"),
-    tasks: bool = typer.Option(True, "--tasks/--no-tasks", help="Search task metadata"),
-    pattern: str = typer.Option("*", "--pattern", "-p", help="File pattern for workspace search"),
-    case_sensitive: bool = typer.Option(False, "--case-sensitive", "-c", help="Case sensitive search"),
-    status: str = typer.Option("all", "--status", "-s", help="Filter by status"),
-) -> None:
-    """Search across all tasks and workspaces."""
-    try:
-        import subprocess
-
-        service = get_service()
-
-        # Build filters
-        filters = {}
-        if status != "all":
-            from taskmanager.models import TaskStatus
-            filters["status"] = TaskStatus(status)
-
-        # Get all tasks
-        all_tasks, total = service.list_tasks(**filters, limit=100)
-
-        if total == 0:
-            console.print("[yellow]No tasks found[/yellow]")
-            raise typer.Exit(0)
-
-        task_matches = []
-        workspace_matches = []
-
-        # Search task metadata
-        if tasks:
-            query_lower = query.lower() if not case_sensitive else query
-
-            for task in all_tasks:
-                matches = []
-
-                title_check = task.title.lower() if not case_sensitive else task.title
-                if query_lower in title_check:
-                    matches.append("title")
-
-                if task.description:
-                    desc_check = task.description.lower() if not case_sensitive else task.description
-                    if query_lower in desc_check:
-                        matches.append("description")
-
-                if task.tags:
-                    tags_check = task.tags.lower() if not case_sensitive else task.tags
-                    if query_lower in tags_check:
-                        matches.append("tags")
-
-                if task.jira_issues:
-                    jira_check = task.jira_issues.lower() if not case_sensitive else task.jira_issues
-                    if query_lower in jira_check:
-                        matches.append("JIRA")
-
-                if matches:
-                    task_matches.append({
-                        "task": task,
-                        "fields": matches
-                    })
-
-        # Search workspaces
-        if workspaces:
-            for task in all_tasks:
-                if not task.workspace_path or not task.id:
-                    continue
-
-                workspace_path = service.get_workspace_path(task.id)
-                if not workspace_path or not workspace_path.exists():
-                    continue
-
-                try:
-                    rg_args = [
-                        "rg",
-                        "--color", "never",
-                        "--files-with-matches",
-                        "--max-count", "5",
-                    ]
-
-                    if not case_sensitive:
-                        rg_args.append("--ignore-case")
-
-                    if pattern != "*":
-                        rg_args.extend(["--glob", pattern])
-
-                    rg_args.extend([
-                        "--glob", "!.git",
-                        "--glob", "!tmp/*",
-                        "--glob", "!*.pyc",
-                        "--glob", "!__pycache__",
-                    ])
-
-                    rg_args.extend([query, str(workspace_path)])
-
-                    result = subprocess.run(
-                        rg_args,
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-
-                    if result.returncode == 0:
-                        matched_files = result.stdout.strip().split("\n")
-                        matched_files = [f.replace(str(workspace_path) + "/", "") for f in matched_files if f]
-
-                        workspace_matches.append({
-                            "task": task,
-                            "files": matched_files
-                        })
-
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    continue
-
-        # Display results
-        if not task_matches and not workspace_matches:
-            console.print(f"[yellow]No matches found for:[/yellow] {query}")
-            console.print(f"Searched: {total} task(s)")
-            return
-
-        console.print(f"[bold]Search Results for:[/bold] {query}\n")
-        console.print(f"Searched: {total} task(s)")
-        console.print(f"Found: {len(task_matches)} task match(es), {len(workspace_matches)} workspace match(es)\n")
-
-        # Show task matches
-        if task_matches:
-            console.print("[bold]Task Metadata Matches:[/bold]")
-            for match in task_matches[:20]:
-                task = match["task"]
-                fields = ", ".join(match["fields"])
-
-                from taskmanager.models import TaskStatus
-                status_emoji = {
-                    TaskStatus.PENDING: "⭕",
-                    TaskStatus.IN_PROGRESS: "🔄",
-                    TaskStatus.COMPLETED: "✅",
-                    TaskStatus.CANCELLED: "❌",
-                    TaskStatus.ARCHIVED: "📦",
-                }.get(task.status, "❓")
-
-                console.print(f"{status_emoji} [bold]Task #{task.id}:[/bold] {task.title}")
-                console.print(f"   Matched in: {fields}")
-                if task.workspace_path:
-                    console.print("   📁 Has workspace")
-                console.print()
-
-        # Show workspace matches
-        if workspace_matches:
-            console.print("[bold]Workspace Content Matches:[/bold]")
-            for match in workspace_matches[:20]:
-                task = match["task"]
-                files = match["files"]
-
-                from taskmanager.models import TaskStatus
-                status_emoji = {
-                    TaskStatus.PENDING: "⭕",
-                    TaskStatus.IN_PROGRESS: "🔄",
-                    TaskStatus.COMPLETED: "✅",
-                    TaskStatus.CANCELLED: "❌",
-                    TaskStatus.ARCHIVED: "📦",
-                }.get(task.status, "❓")
-
-                console.print(f"{status_emoji} [bold]Task #{task.id}:[/bold] {task.title}")
-                console.print(f"   Found in {len(files)} file(s):")
-                for f in files[:5]:
-                    console.print(f"      - {f}")
-                if len(files) > 5:
-                    console.print(f"      ... and {len(files) - 5} more")
-                console.print()
-
-    except FileNotFoundError:
-        console.print("[red]ripgrep not found.[/red] Install with: brew install ripgrep")
-        raise typer.Exit(1)
-    except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
-
-
-def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
+def _gather_initial_context(service, settings):
     """Gather initial task context for Claude session.
     
     Args:
@@ -1578,7 +927,7 @@ def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
     
     Returns:
         Tuple of (display_text, context_prompt) where:
-        - display_text: Rich formatted text to show user before session starts
+        - display_text: Plain text to show user before session starts
         - context_prompt: Structured context to pass to Claude as initial message
     """
     from datetime import date, datetime
@@ -1598,25 +947,25 @@ def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
     high_priority = [t for t in all_tasks if t.priority == Priority.HIGH and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
     urgent_priority = [t for t in all_tasks if t.priority == Priority.URGENT and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
     
-    # Build display text for user
+    # Build display text for user (plain text, no Rich formatting)
     display_parts = []
-    display_parts.append("[bold cyan]📊 Current Task Context[/bold cyan]\n")
-    display_parts.append(f"[dim]Current time:[/dim] {current_time_str}")
+    display_parts.append("📊 Current Task Context\n")
+    display_parts.append(f"Current time: {current_time_str}")
     
     profile_name = settings.profile
-    display_parts.append(f"[dim]Profile:[/dim] {profile_name}")
-    display_parts.append(f"[dim]Total tasks:[/dim] {len(all_tasks)}")
+    display_parts.append(f"Profile: {profile_name}")
+    display_parts.append(f"Total tasks: {len(all_tasks)}")
     
     if urgent_priority:
-        display_parts.append(f"[red]⚡ Urgent:[/red] {len(urgent_priority)}")
+        display_parts.append(f"⚡ Urgent: {len(urgent_priority)}")
     if high_priority:
-        display_parts.append(f"[yellow]⚠️  High priority:[/yellow] {len(high_priority)}")
+        display_parts.append(f"⚠️  High priority: {len(high_priority)}")
     if overdue:
-        display_parts.append(f"[red]⏰ Overdue:[/red] {len(overdue)}")
+        display_parts.append(f"⏰ Overdue: {len(overdue)}")
     if in_progress:
-        display_parts.append(f"[blue]▶️  In progress:[/blue] {len(in_progress)}")
+        display_parts.append(f"▶️  In progress: {len(in_progress)}")
     if pending:
-        display_parts.append(f"[dim]⏸️  Pending:[/dim] {len(pending)}")
+        display_parts.append(f"⏸️  Pending: {len(pending)}")
     
     display_text = "\n".join(display_parts)
     
@@ -1671,26 +1020,13 @@ def _gather_initial_context(service: TaskService, settings) -> tuple[str, str]:
     return display_text, context_prompt
 
 
-@app.command("chat")
-def chat_command(
-    task_id: int | None = typer.Argument(None, help="Optional task ID to focus on"),
-    no_context: bool = typer.Option(False, "--no-context", help="Skip automatic context loading"),
-) -> None:
-    """Launch Claude agent session with task and JIRA context.
-    
-    Opens an interactive Claude chat session with MCP servers configured:
-    - tasks-mcp: For task management operations
-    - atlassian-mcp: For JIRA/Confluence integration (with configured credentials)
-    
-    Automatically pre-loads current task context including in-progress items,
-    overdue tasks, and high-priority work to provide immediate situational awareness.
-    
-    Uses credentials from ~/.taskmanager/config.toml for secure authentication.
-    If a task ID is provided, includes that task's context in the conversation.
-    """
+def cmd_chat(args):
+    """Launch Claude agent session with task and JIRA context."""
     try:
         import json
         import tempfile
+        import shutil
+        from datetime import datetime
         
         service = get_service()
         settings = get_settings()
@@ -1704,23 +1040,23 @@ def chat_command(
                 timeout=5
             )
         except (FileNotFoundError, subprocess.CalledProcessError):
-            console.print("[red]Error:[/red] 'claude' CLI not found or not working")
-            console.print("Install Claude CLI: https://github.com/anthropics/anthropic-sdk-python")
-            raise typer.Exit(1)
+            print("Error: 'claude' CLI not found or not working", file=sys.stderr)
+            print("Install Claude CLI: https://github.com/anthropics/anthropic-sdk-python")
+            sys.exit(1)
         
         # Determine the working directory
         working_dir = Path.cwd()
-        if task_id:
+        if args.task_id:
             # Get or create workspace for the task
-            workspace_path = service.get_workspace_path(task_id)
+            workspace_path = service.get_workspace_path(args.task_id)
             if not workspace_path:
-                console.print(f"[yellow]No workspace exists for task #{task_id}. Creating one...[/yellow]")
-                service.create_workspace(task_id=task_id, initialize_git=True)
-                workspace_path = service.get_workspace_path(task_id)
+                print(f"No workspace exists for task #{args.task_id}. Creating one...")
+                service.create_workspace(task_id=args.task_id, initialize_git=True)
+                workspace_path = service.get_workspace_path(args.task_id)
             
             if workspace_path:
                 working_dir = workspace_path
-                console.print(f"[green]Opening chat session[/green] for task #{task_id}")
+                print(f"Opening chat session for task #{args.task_id}")
         
         # Prepare environment with MCP server configuration
         env = os.environ.copy()
@@ -1792,25 +1128,25 @@ def chat_command(
                 if atlassian_modifier.env:
                     mcp_servers["atlassian"]["env"].update(atlassian_modifier.env)
             
-            console.print("[green]✓[/green] Atlassian credentials loaded from configuration")
+            print("✓ Atlassian credentials loaded from configuration")
         else:
-            console.print("[yellow]Warning:[/yellow] Atlassian credentials not configured")
-            console.print("  Configure in ~/.taskmanager/config.toml under [atlassian]")
-            console.print("  Required: jira_url, jira_token")
-            console.print("  Optional: jira_username, confluence_url, confluence_username, confluence_token")
+            print("Warning: Atlassian credentials not configured")
+            print("  Configure in ~/.taskmanager/config.toml under [atlassian]")
+            print("  Required: jira_url, jira_token")
+            print("  Optional: jira_username, confluence_url, confluence_username, confluence_token")
         
         # Set environment for claude CLI
         env["MCP_SERVERS"] = json.dumps(mcp_servers)
         
         # Gather and display initial context (unless disabled)
         initial_prompt = None
-        if not no_context:
+        if not args.no_context:
             try:
                 display_text, context_prompt = _gather_initial_context(service, settings)
-                console.print(f"\n{display_text}\n")
+                print(f"\n{display_text}\n")
                 initial_prompt = context_prompt
             except Exception as e:
-                console.print(f"[yellow]Warning:[/yellow] Could not load initial context: {e}")
+                print(f"Warning: Could not load initial context: {e}")
         
         # Build comprehensive system prompt for the claude session
         system_prompt = """# Mission: Smart Assistant for Task & JIRA Management
@@ -1920,8 +1256,8 @@ When starting a new session, please:
 """
         
         # Add current task context if provided
-        if task_id:
-            task = service.get_task(task_id)
+        if args.task_id:
+            task = service.get_task(args.task_id)
             system_prompt += f"\n## Current Task Focus\n\n"
             system_prompt += f"You are currently working in the context of:\n\n"
             system_prompt += f"- **Task ID:** #{task.id}\n"
@@ -1945,20 +1281,17 @@ When starting a new session, please:
         
         try:
             # Launch claude CLI with comprehensive system prompt and initial context
-            console.print("\n[bold green]Starting Claude agent session...[/bold green]")
-            console.print("[dim]Type 'exit' or Ctrl+D to end the session[/dim]\n")
+            print("\nStarting Claude agent session...")
+            print("Type 'exit' or Ctrl+D to end the session\n")
             
             # Create ephemeral session directory with settings.json
-            session_dir, session_env = create_ephemeral_session_dir(system_prompt)
+            session_dir, session_env = create_ephemeral_session_dir(system_prompt, str(working_dir))
             
             # Merge session environment with existing environment
             full_env = env.copy()
             full_env.update(session_env)
             
             # Debug: Copy config files to /tmp for inspection
-            import json
-            import shutil
-            from datetime import datetime
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             debug_dir = Path(f"/tmp/tasks-chat-debug-{timestamp}")
             debug_dir.mkdir(exist_ok=True)
@@ -1974,7 +1307,7 @@ When starting a new session, please:
                 f.write(f"CLAUDE_CODE_TMPDIR: {session_env.get('CLAUDE_CODE_TMPDIR', 'not set')}\n")
                 f.write(f"HOME: {session_env.get('HOME', 'not overridden')}\n")
             
-            console.print(f"[dim]Debug config copied to: {debug_dir}[/dim]\n")
+            print(f"Debug config copied to: {debug_dir}\n")
             
             # Build claude command with strict MCP config flags
             # --mcp-config: Specifies the path to our MCP servers JSON
@@ -1998,20 +1331,216 @@ When starting a new session, please:
                 check=False
             )
             
-            console.print("\n[green]✓[/green] Claude session ended")
-            console.print(f"[dim]Debug config at: {debug_dir}[/dim]")
-            console.print(f"[dim]Session dir: {session_dir}[/dim]")
+            print("\n✓ Claude session ended")
+            print(f"Debug config at: {debug_dir}")
+            print(f"Session dir: {session_dir}")
         except Exception as e:
-            console.print(f"[red]Error:[/red] {str(e)}")
-            raise typer.Exit(1)
+            print(f"Error: {str(e)}", file=sys.stderr)
+            sys.exit(1)
         
     except ValueError as e:
-        console.print(f"[red]Error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        console.print(f"[red]Unexpected error:[/red] {str(e)}", style="bold")
-        raise typer.Exit(1)
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
+def main():
+    """Main entry point for the CLI."""
+    # Define all subcommands for abbreviation expansion
+    subcommands = ['add', 'new', 'list', 'show', 'update', 'complete', 'delete', 'tags', 'search', 
+                   'config', 'attach', 'workspace', 'chat']
+    
+    # Expand abbreviations in sys.argv before parsing
+    sys.argv = expand_abbreviations(sys.argv, subcommands)
+    
+    # Create the main parser with abbreviation support
+    parser = HelpfulArgumentParser(
+        prog='tasks',
+        description='A powerful CLI task manager for organizing your work and life.',
+        allow_abbrev=True,
+    )
+    
+    parser.add_argument('-V', '--version', action='version', version=f'tasks {get_version()}')
+    parser.add_argument('-c', '--config', type=Path, help='Path to configuration file')
+    parser.add_argument('-p', '--profile', help='Configuration profile (default, dev, test)')
+    parser.add_argument('-d', '--database', help='Database URL override')
+    
+    # Add shell completion support if shtab is available
+    if SHTAB_AVAILABLE:
+        shtab.add_argument_to(parser, ['-s', '--print-completion'])
+    
+    # Create subparsers - note: parser_class inherits allow_abbrev from parent
+    subparsers = parser.add_subparsers(dest='command', help='Available commands', parser_class=HelpfulArgumentParser)
+    
+    # Add command
+    add_parser = subparsers.add_parser('add', help='Create a new task', aliases=['new'])
+    add_parser.add_argument('title', help='Task title')
+    add_parser.add_argument('-d', '--description', help='Task description')
+    add_parser.add_argument('-p', '--priority', choices=['low', 'medium', 'high', 'urgent'], help='Task priority')
+    add_parser.add_argument('--due', help='Due date (YYYY-MM-DD)')
+    add_parser.add_argument('-s', '--status', choices=['pending', 'in_progress', 'completed', 'cancelled', 'archived'], help='Initial status')
+    add_parser.add_argument('-j', '--jira', help='JIRA issue keys (comma-separated)')
+    add_parser.add_argument('-t', '--tags', help='Tags (comma-separated)')
+    add_parser.set_defaults(func=cmd_add)
+    
+    # List command
+    list_parser = subparsers.add_parser('list', help='List tasks with optional filtering')
+    list_parser.add_argument('-s', '--status', help='Filter by status')
+    list_parser.add_argument('-p', '--priority', help='Filter by priority')
+    list_parser.add_argument('--tag', help='Filter by tag (partial match)')
+    list_parser.add_argument('-l', '--limit', type=int, default=20, help='Maximum number of tasks to show')
+    list_parser.add_argument('--offset', type=int, default=0, help='Number of tasks to skip')
+    list_parser.add_argument('-f', '--format', choices=['table', 'simple', 'json'], default='table', help='Output format')
+    list_parser.add_argument('-a', '--all', action='store_true', help='Show all tasks including completed, cancelled, and archived')
+    list_parser.add_argument('--show-tags', action='store_true', help='Show tags column in table')
+    list_parser.add_argument('--show-jira', type=int, nargs='?', const=0, default=None, help='Show JIRA issues column')
+    list_parser.add_argument('--show-created', action='store_true', help='Show created date column in table')
+    list_parser.add_argument('--show-updated', action='store_true', help='Show updated date column in table')
+    list_parser.set_defaults(func=cmd_list)
+    
+    # Show command
+    show_parser = subparsers.add_parser('show', help='Show detailed information about a specific task')
+    show_parser.add_argument('task_id', type=int, help='Task ID to display')
+    show_parser.set_defaults(func=cmd_show)
+    
+    # Update command
+    update_parser = subparsers.add_parser('update', help='Update an existing task')
+    update_parser.add_argument('task_id', type=int, help='Task ID to update')
+    update_parser.add_argument('-t', '--title', help='New title')
+    update_parser.add_argument('-d', '--description', help='New description')
+    update_parser.add_argument('-p', '--priority', choices=['low', 'medium', 'high', 'urgent'], help='New priority')
+    update_parser.add_argument('-s', '--status', choices=['pending', 'in_progress', 'completed', 'cancelled', 'archived'], help='New status')
+    update_parser.add_argument('--due', help='New due date (YYYY-MM-DD)')
+    update_parser.add_argument('-j', '--jira', help='JIRA issue keys (comma-separated)')
+    update_parser.add_argument('--tags', help='Tags (comma-separated)')
+    update_parser.add_argument('--clear-description', action='store_true', help='Clear the description')
+    update_parser.add_argument('--clear-due', action='store_true', help='Clear the due date')
+    update_parser.add_argument('--clear-jira', action='store_true', help='Clear JIRA issues')
+    update_parser.add_argument('--clear-tags', action='store_true', help='Clear tags')
+    update_parser.set_defaults(func=cmd_update)
+    
+    # Complete command
+    complete_parser = subparsers.add_parser('complete', help='Mark a task as complete')
+    complete_parser.add_argument('task_id', type=int, help='Task ID to complete')
+    complete_parser.set_defaults(func=cmd_complete)
+    
+    # Delete command
+    delete_parser = subparsers.add_parser('delete', help='Delete a task permanently')
+    delete_parser.add_argument('task_id', type=int, help='Task ID to delete')
+    delete_parser.add_argument('--force', action='store_true', help='Skip confirmation')
+    delete_parser.set_defaults(func=cmd_delete)
+    
+    # Tags command
+    tags_parser = subparsers.add_parser('tags', help='List all unique tags')
+    tags_parser.set_defaults(func=cmd_tags)
+    
+    # Search command
+    search_parser = subparsers.add_parser('search', help='Search across all tasks and workspaces')
+    search_parser.add_argument('query', help='Search query')
+    search_parser.add_argument('--workspaces', action='store_true', default=True, help='Search workspace files (default: True)')
+    search_parser.add_argument('--no-workspaces', action='store_false', dest='workspaces', help='Skip workspace search')
+    search_parser.add_argument('--tasks', action='store_true', default=True, help='Search task metadata (default: True)')
+    search_parser.add_argument('--no-tasks', action='store_false', dest='tasks', help='Skip task metadata search')
+    search_parser.add_argument('-p', '--pattern', default='*', help='File pattern for workspace search')
+    search_parser.add_argument('-c', '--case-sensitive', action='store_true', help='Case sensitive search')
+    search_parser.add_argument('-s', '--status', default='all', help='Filter by status')
+    search_parser.set_defaults(func=cmd_search)
+    
+    # Config sub-commands
+    config_parser = subparsers.add_parser('config', help='Manage configuration')
+    config_subparsers = config_parser.add_subparsers(dest='config_command', help='Config commands')
+    
+    config_show = config_subparsers.add_parser('show', help='Display current configuration')
+    config_show.set_defaults(func=cmd_config_show)
+    
+    config_path = config_subparsers.add_parser('path', help='Show configuration file location')
+    config_path.set_defaults(func=cmd_config_path)
+    
+    config_edit = config_subparsers.add_parser('edit', help='Open configuration file in editor')
+    config_edit.set_defaults(func=cmd_config_edit)
+    
+    # Attach sub-commands
+    attach_parser = subparsers.add_parser('attach', help='Manage task attachments')
+    attach_subparsers = attach_parser.add_subparsers(dest='attach_command', help='Attachment commands')
+    
+    attach_add = attach_subparsers.add_parser('add', help='Attach a file to a task')
+    attach_add.add_argument('task_id', type=int, help='Task ID to attach file to')
+    attach_add.add_argument('file_path', help='Path to file to attach')
+    attach_add.set_defaults(func=cmd_attach_add)
+    
+    attach_list = attach_subparsers.add_parser('list', help='List all attachments for a task')
+    attach_list.add_argument('task_id', type=int, help='Task ID to list attachments for')
+    attach_list.set_defaults(func=cmd_attach_list)
+    
+    attach_remove = attach_subparsers.add_parser('remove', help='Remove an attachment from a task')
+    attach_remove.add_argument('task_id', type=int, help='Task ID')
+    attach_remove.add_argument('filename', help='Filename of attachment to remove')
+    attach_remove.add_argument('--force', action='store_true', help='Skip confirmation')
+    attach_remove.set_defaults(func=cmd_attach_remove)
+    
+    attach_open = attach_subparsers.add_parser('open', help='Open an attachment file')
+    attach_open.add_argument('task_id', type=int, help='Task ID')
+    attach_open.add_argument('filename', help='Filename of attachment to open')
+    attach_open.set_defaults(func=cmd_attach_open)
+    
+    # Workspace sub-commands
+    workspace_parser = subparsers.add_parser('workspace', help='Manage task workspaces')
+    workspace_subparsers = workspace_parser.add_subparsers(dest='workspace_command', help='Workspace commands')
+    
+    workspace_create = workspace_subparsers.add_parser('create', help='Create a persistent workspace for a task')
+    workspace_create.add_argument('task_id', type=int, help='Task ID to create workspace for')
+    workspace_create.add_argument('--no-git', action='store_true', help='Skip git initialization')
+    workspace_create.set_defaults(func=cmd_workspace_create)
+    
+    workspace_info = workspace_subparsers.add_parser('info', help='Show workspace information for a task')
+    workspace_info.add_argument('task_id', type=int, help='Task ID')
+    workspace_info.set_defaults(func=cmd_workspace_info)
+    
+    workspace_path = workspace_subparsers.add_parser('path', help="Show the path to a task's workspace")
+    workspace_path.add_argument('task_id', type=int, help='Task ID')
+    workspace_path.set_defaults(func=cmd_workspace_path)
+    
+    workspace_open = workspace_subparsers.add_parser('open', help="Open a task's workspace in Finder/Explorer")
+    workspace_open.add_argument('task_id', type=int, help='Task ID')
+    workspace_open.set_defaults(func=cmd_workspace_open)
+    
+    workspace_delete = workspace_subparsers.add_parser('delete', help="Delete a task's workspace and all its contents")
+    workspace_delete.add_argument('task_id', type=int, help='Task ID')
+    workspace_delete.add_argument('--force', action='store_true', help='Skip confirmation')
+    workspace_delete.set_defaults(func=cmd_workspace_delete)
+    
+    workspace_list = workspace_subparsers.add_parser('list', help="List files in a task's workspace")
+    workspace_list.add_argument('task_id', type=int, help='Task ID')
+    workspace_list.add_argument('-d', '--subdirectory', default='', help='Subdirectory to list')
+    workspace_list.add_argument('-p', '--pattern', default='*', help='File pattern (e.g., *.py, *.md)')
+    workspace_list.set_defaults(func=cmd_workspace_list)
+    
+    # Chat command
+    chat_parser = subparsers.add_parser('chat', help='Launch Claude agent session with task and JIRA context')
+    chat_parser.add_argument('task_id', nargs='?', type=int, help='Optional task ID to focus on')
+    chat_parser.add_argument('--no-context', action='store_true', help='Skip automatic context loading')
+    chat_parser.set_defaults(func=cmd_chat)
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # Handle global options
+    if args.profile or args.database or args.config:
+        settings = get_settings()
+        if args.profile:
+            settings.profile = args.profile
+        if args.database:
+            settings.database_url = args.database
+        # Config file handling would go here
+    
+    # Execute command
+    if hasattr(args, 'func'):
+        args.func(args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
-    app()
+    main()
