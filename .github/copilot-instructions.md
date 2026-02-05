@@ -424,8 +424,16 @@ pre-commit run --all-files
 **Restrictions**:
 - **Cannot merge to main**: Even if all quality gates pass, delegate agents cannot execute `git merge`
 - **Cannot update version**: Version bumps in `pyproject.toml` and `CHANGELOG.md` must be done by humans
-- **Cannot update task status**: Cannot mark tasks as `done` in the dev profile
+- **Cannot mark task as `integrate`**: Cannot signal merge approval—only main agent can mark `integrate`
+- **Cannot mark task as `done`/`completed`**: Cannot mark tasks as complete in the default profile
 - **Cannot remove worktrees**: Cleanup of feature worktrees must be done by humans
+
+**Status Signaling (Delegate Agent Capabilities)**:
+- **CAN mark**: `stuck` (blocker encountered), `review` (work complete and passing quality gates)
+- **CANNOT mark**: `integrate` (merge approval only for main agent), `completed` (final completion only for human)
+- When work is ready for integration: Mark task as `review`, not `integrate`
+  - Main agent reviews your work, then marks as `integrate` when approved
+  - This ensures human authorization before code moves to main
 
 **Why**: The integration workflow is a critical control point. Only humans can authorize code moving to production. This prevents:
 - Accidental merges of incomplete or problematic code
@@ -437,14 +445,17 @@ pre-commit run --all-files
 - Implement features in worktree on feature branch
 - Run all quality checks locally (lint, test, security scan)
 - Commit changes with proper conventional message
+- Mark task as `stuck` when blocked (requests main agent intervention)
+- Mark task as `review` when work complete and passing quality gates (requests review)
 - Create pull request / request human review
 - **Report readiness**: Document what's been completed and what's passing
 
 **Response to Integration Requests**: If asked to complete the integration workflow while on a feature branch, delegate agents MUST:
-1. **Refuse politely**: "I cannot merge code to main. Only human review and approval can authorize that."
-2. **Explain the boundary**: Clarify that integration is a human-only operation
+1. **Refuse politely**: "I cannot merge code to main or mark task as `integrate`. Only human review and approval can authorize that."
+2. **Explain the boundary**: Clarify that integration and merge approval is a human-only operation
 3. **Summarize progress**: Provide a detailed report of what's complete, what passes quality gates, and what's ready for human review
-4. **Direct to human**: "Please review the feature branch and complete the integration workflow when you're satisfied."
+4. **Signal readiness**: Mark task as `review` to indicate work is ready for evaluation
+5. **Direct to human**: "Please review the feature branch and mark task as `integrate` when you're satisfied, then complete the merge."
 
 ---
 

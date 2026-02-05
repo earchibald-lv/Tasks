@@ -57,15 +57,21 @@ def get_service(profile: str = None) -> TaskService:
 def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
     """Convert MCP-friendly status string to TaskStatus enum.
     
-    MCP tools use simplified terminology:
+    MCP tools use simplified terminology for standard workflow states:
     - "todo" → PENDING
     - "in_progress" → IN_PROGRESS  
     - "done" → COMPLETED
     - "cancelled" → CANCELLED (direct mapping)
     - "archived" → ARCHIVED (direct mapping)
     
+    Agent communication statuses (for multi-agent workflows):
+    - "assigned" → ASSIGNED (direct mapping)
+    - "stuck" → STUCK (direct mapping)
+    - "review" → REVIEW (direct mapping)
+    - "integrate" → INTEGRATE (direct mapping)
+    
     Args:
-        mcp_status: Status string from MCP tool (todo, in_progress, done, cancelled, archived)
+        mcp_status: Status string from MCP tool
         
     Returns:
         TaskStatus: Corresponding enum value
@@ -74,6 +80,7 @@ def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
         ValueError: If status string is invalid
     """
     status_map = {
+        # Standard workflow states
         "todo": TaskStatus.PENDING,
         "pending": TaskStatus.PENDING,  # Allow direct use too
         "in_progress": TaskStatus.IN_PROGRESS,
@@ -81,6 +88,11 @@ def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
         "completed": TaskStatus.COMPLETED,  # Allow direct use too
         "cancelled": TaskStatus.CANCELLED,
         "archived": TaskStatus.ARCHIVED,
+        # Agent communication statuses
+        "assigned": TaskStatus.ASSIGNED,
+        "stuck": TaskStatus.STUCK,
+        "review": TaskStatus.REVIEW,
+        "integrate": TaskStatus.INTEGRATE,
     }
     
     if mcp_status not in status_map:
@@ -93,12 +105,18 @@ def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
 def task_status_to_mcp_status(task_status: TaskStatus) -> str:
     """Convert TaskStatus enum to MCP-friendly status string.
     
-    Returns simplified terminology for MCP tools:
+    Returns simplified terminology for standard workflow states:
     - PENDING → "todo"
     - IN_PROGRESS → "in_progress"
     - COMPLETED → "done"
     - CANCELLED → "cancelled"
     - ARCHIVED → "archived"
+    
+    For agent communication statuses, returns direct mapping:
+    - ASSIGNED → "assigned"
+    - STUCK → "stuck"
+    - REVIEW → "review"
+    - INTEGRATE → "integrate"
     
     Args:
         task_status: TaskStatus enum value
@@ -107,11 +125,17 @@ def task_status_to_mcp_status(task_status: TaskStatus) -> str:
         str: MCP-friendly status string
     """
     reverse_map = {
+        # Standard workflow states
         TaskStatus.PENDING: "todo",
         TaskStatus.IN_PROGRESS: "in_progress",
         TaskStatus.COMPLETED: "done",
         TaskStatus.CANCELLED: "cancelled",
         TaskStatus.ARCHIVED: "archived",
+        # Agent communication statuses
+        TaskStatus.ASSIGNED: "assigned",
+        TaskStatus.STUCK: "stuck",
+        TaskStatus.REVIEW: "review",
+        TaskStatus.INTEGRATE: "integrate",
     }
     return reverse_map[task_status]
 
@@ -202,7 +226,7 @@ class TaskUpdateForm(BaseModel):
         default="", description="New priority: low, medium, high (leave empty to keep current)"
     )
     status: str = Field(
-        default="", description="New status: todo, in_progress, done, cancelled (leave empty to keep current)"
+        default="", description="New status: todo, in_progress, done, cancelled, archived, assigned, stuck, review, integrate (leave empty to keep current)"
     )
     due_date: str = Field(default="", description="New due date YYYY-MM-DD (leave empty to keep current)")
     jira_issues: str = Field(default="", description="New JIRA issues as CSV list (e.g., 'SRE-1234,DEVOPS-5678'). No spaces. Leave empty to keep current. (optional)")
@@ -320,7 +344,7 @@ async def update_task_interactive(
             try:
                 update_dict["status"] = TaskStatus(updates.status.strip())
             except ValueError:
-                return f"❌ Invalid status: {updates.status}. Use: pending, in_progress, completed, cancelled, archived"
+                return f"❌ Invalid status: {updates.status}. Use: pending, in_progress, completed, cancelled, archived, assigned, stuck, review, integrate"
         if updates.due_date and updates.due_date.strip():
             try:
                 update_dict["due_date"] = datetime.strptime(updates.due_date.strip(), "%Y-%m-%d").date()
@@ -397,7 +421,7 @@ def create_task(
     title: str,
     description: str | None = None,
     priority: Literal["low", "medium", "high", "urgent"] = "medium",
-    status: Literal["todo", "in_progress", "done", "cancelled", "archived"] = "todo",
+    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate"] = "todo",
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
@@ -411,8 +435,8 @@ def create_task(
     Args:
         title: Task title
         description: Detailed description
-        priority: Task priority (low, medium, high)
-        status: Initial status (todo, in_progress, done)
+        priority: Task priority (low, medium, high, urgent)
+        status: Initial status (todo, in_progress, done, cancelled, archived, assigned, stuck, review, integrate)
         due_date: Due date in YYYY-MM-DD format
         tags: List of tags for organization
         jira_issues: Comma-separated (CSV) JIRA issue keys (e.g., "SRE-1234,DEVOPS-5678"). No spaces around commas. Can link multiple JIRA issues to one task.
@@ -449,7 +473,7 @@ def create_task(
 
 @mcp.tool()
 def list_tasks(
-    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "all"] = "all",
+    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate", "all"] = "all",
     priority: Literal["low", "medium", "high", "urgent", "all"] = "all",
     tag: str | None = None,
     overdue_only: bool = False,
@@ -458,8 +482,8 @@ def list_tasks(
     """List tasks with optional filtering.
 
     Args:
-        status: Filter by status (todo, in_progress, done, all)
-        priority: Filter by priority (low, medium, high, all)
+        status: Filter by status (todo, in_progress, done, cancelled, archived, assigned, stuck, review, integrate, all)
+        priority: Filter by priority (low, medium, high, urgent, all)
         tag: Filter by tag
         overdue_only: Show only overdue tasks
         profile: Database profile to use (default, dev, test)
@@ -503,6 +527,10 @@ def list_tasks(
                 TaskStatus.COMPLETED: "✅",
                 TaskStatus.CANCELLED: "❌",
                 TaskStatus.ARCHIVED: "📦",
+                TaskStatus.ASSIGNED: "⭐",
+                TaskStatus.STUCK: "⛔",
+                TaskStatus.REVIEW: "🔍",
+                TaskStatus.INTEGRATE: "✅",
             }.get(task.status, "❓")
 
             priority_emoji = {
@@ -558,7 +586,7 @@ def update_task(
     title: str | None = None,
     description: str | None = None,
     priority: Literal["low", "medium", "high", "urgent"] | None = None,
-    status: Literal["todo", "in_progress", "done", "cancelled", "archived"] | None = None,
+    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate"] | None = None,
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
@@ -1082,7 +1110,7 @@ def search_all_tasks(
     search_task_fields: bool = True,
     file_pattern: str = "*",
     case_sensitive: bool = False,
-    status_filter: Literal["todo", "in_progress", "done", "cancelled", "archived", "all"] = "all",
+    status_filter: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate", "all"] = "all",
     profile: Literal["default", "dev", "test"] = None,) -> str:
     """Search across all tasks and their workspaces.
 
@@ -1099,7 +1127,7 @@ def search_all_tasks(
         search_task_fields: Whether to search task metadata (default: True)
         file_pattern: File pattern for workspace search (e.g., "*.py", "*.md")
         case_sensitive: Whether to match case exactly (default: False)
-        status_filter: Filter by task status (todo, in_progress, done, all)
+        status_filter: Filter by task status (todo, in_progress, done, cancelled, archived, assigned, stuck, review, integrate, all)
     """
     import subprocess
 
@@ -1243,6 +1271,10 @@ def search_all_tasks(
                     TaskStatus.COMPLETED: "✅",
                     TaskStatus.CANCELLED: "❌",
                     TaskStatus.ARCHIVED: "📦",
+                    TaskStatus.ASSIGNED: "⭐",
+                    TaskStatus.STUCK: "⛔",
+                    TaskStatus.REVIEW: "🔍",
+                    TaskStatus.INTEGRATE: "✅",
                 }.get(task.status, "❓")
 
                 lines.append(f"{status_emoji} **Task #{task.id}**: {task.title}")
@@ -1268,6 +1300,10 @@ def search_all_tasks(
                     TaskStatus.COMPLETED: "✅",
                     TaskStatus.CANCELLED: "❌",
                     TaskStatus.ARCHIVED: "📦",
+                    TaskStatus.ASSIGNED: "⭐",
+                    TaskStatus.STUCK: "⛔",
+                    TaskStatus.REVIEW: "🔍",
+                    TaskStatus.INTEGRATE: "✅",
                 }.get(task.status, "❓")
 
                 lines.append(f"{status_emoji} **Task #{task.id}**: {task.title}")
@@ -1579,6 +1615,10 @@ def list_workspaces() -> str:
             TaskStatus.COMPLETED: "✅",
             TaskStatus.CANCELLED: "❌",
             TaskStatus.ARCHIVED: "📦",
+            TaskStatus.ASSIGNED: "⭐",
+            TaskStatus.STUCK: "⛔",
+            TaskStatus.REVIEW: "🔍",
+            TaskStatus.INTEGRATE: "✅",
         }.get(task.status, "❓")
 
         lines.append(f"{status_emoji} **Task #{task.id}**: {task.title}")

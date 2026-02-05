@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-02-05
+
+### Added
+
+- **Agent Communication Status System** (#11):
+  - Four new TaskStatus enum values for multi-agent workflows:
+    - `ASSIGNED` (⭐): Main agent assigned work to delegate
+    - `STUCK` (⛔): Delegate blocked, needs intervention
+    - `REVIEW` (🔍): Delegate work ready for review before integration
+    - `INTEGRATE` (✅): Approved, ready to merge to main
+  - Updated MCP server status mappings to support all new statuses
+  - MCP tools support filtering and updating with new statuses
+  - Updated `list_tasks` and `search_all_tasks` MCP tools to include emoji indicators for new statuses
+  - Result: Complete agent communication protocol for delegated task implementation
+  - Implementation: 100% backward compatible with existing statuses
+
+- **MCP + CLI Resilience for Worktree Operations** (#11):
+  - System no longer depends on MCP server autostart
+  - All critical operations support dual-path: MCP-first, CLI-fallback
+  - Operations with fallback: prompt retrieval, task updates, status signaling, task listing
+  - Updated AGENT_GUIDANCE.md with Option A (MCP) and Option B (CLI) for all operations
+  - Updated copilot-instructions.md with resilience strategy and implementation patterns
+  - Result: Delegate agents work reliably even without MCP autostart
+  - Result: Clear error messages and fallback guidance when MCP unavailable
+  - Bootstrap script simplified to focus on environment setup only
+
 ## [0.9.0] - 2026-02-05
 
 ### Added
@@ -49,6 +75,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added "Prompt Attachment (MCP Tool)" section explaining why MCP is preferred
   - Added "Retrieving Prompts (MCP Tool)" section with code examples
   - Result: Clearer, more actionable guidance for delegate agents
+=======
+## [0.9.0] - 2026-02-04
+
+### Added
+
+- **Agent Communication Status System** (#11):
+  - New status: `assigned` (⭐) - Main agent assigns work to delegate
+  - New status: `stuck` (⛔) - Delegate blocked, needs intervention
+  - New status: `review` (🔍) - Delegate work ready for review
+  - New status: `integrate` (✅) - Approved, ready to merge to main
+  - Enables multi-agent feature development workflows
+  - Main and delegate agents can now coordinate via task status signals
+  - Clear communication protocol for worktree-based development
+  - Prevents unauthorized merges by restricting delegate agent permissions
+
+### Changed
+
+- Updated README.md with new status lifecycle documentation and workflow diagram
+- Enhanced AGENT_GUIDANCE.md with status signaling instructions and usage examples
+- Updated copilot-instructions.md with delegate agent restrictions and status signaling rules
+- Updated CLI help text to show all available statuses (add, update commands)
+>>>>>>> feature/agent-communication-statuses
 
 ## [0.8.3] - 2026-02-04
 
