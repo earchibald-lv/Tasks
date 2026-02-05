@@ -5,8 +5,12 @@ layer (CLI, MCP) and the repository layer, implementing core business
 logic and validation rules.
 """
 
-from datetime import date
+import tomllib
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
+
+import tomli_w
 
 from taskmanager.attachments import (
     AttachmentManager,
@@ -14,9 +18,38 @@ from taskmanager.attachments import (
     parse_attachments,
     serialize_attachments,
 )
+from taskmanager.config import get_settings
 from taskmanager.models import Priority, Task, TaskStatus
 from taskmanager.repository import TaskRepository
 from taskmanager.workspace import WorkspaceManager, WorkspaceMetadata
+
+
+@dataclass
+class ProfileInfo:
+    """Information about a profile database."""
+
+    name: str
+    database_path: str
+    exists: bool
+    size_bytes: int
+    task_count: int
+    configured: bool  # Is it in settings.toml?
+    last_modified: datetime | None
+    created: datetime | None
+
+
+@dataclass
+class ProfileAudit:
+    """Audit information for a profile before deletion."""
+
+    name: str
+    location: str
+    size_bytes: int
+    task_count: int
+    configured: bool
+    last_modified: datetime | None
+    oldest_task: Task | None
+    newest_task: Task | None
 
 
 class TaskService:
@@ -26,15 +59,24 @@ class TaskService:
     ensuring consistency across CLI and MCP server interfaces.
     """
 
-    def __init__(self, repository: TaskRepository) -> None:
+    def __init__(self, repository: TaskRepository, config: "Settings | None" = None) -> None:
         """Initialize the task service.
 
         Args:
             repository: TaskRepository implementation for data access.
+            config: Optional Settings instance. If not provided, will use get_settings().
         """
         self.repository = repository
         self.attachment_manager = AttachmentManager()
         self.workspace_manager = WorkspaceManager()
+        self._config = config
+
+    @property
+    def config(self) -> "Settings":
+        """Get the Settings instance, using cached or freshly loaded."""
+        if self._config is None:
+            self._config = get_settings()
+        return self._config
 
     def create_task(
         self,
@@ -219,9 +261,7 @@ class TaskService:
         if status is not None:
             # Business rule: Can't reopen completed tasks directly
             if task.status == TaskStatus.COMPLETED and status == TaskStatus.PENDING:
-                raise ValueError(
-                    "Cannot reopen completed task. Use in_progress status first."
-                )
+                raise ValueError("Cannot reopen completed task. Use in_progress status first.")
             task.status = status
 
         if jira_issues is not None:
@@ -367,9 +407,7 @@ class TaskService:
         task = self.get_task(task_id)
 
         # Add the file
-        metadata = self.attachment_manager.add_attachment(
-            task_id, Path(file_path), mime_type
-        )
+        metadata = self.attachment_manager.add_attachment(task_id, Path(file_path), mime_type)
 
         # Update task's attachments metadata
         attachments = parse_attachments(task.attachments)
@@ -495,11 +533,7 @@ class TaskService:
         """
         return self.repository.get_all_used_tags()
 
-    def create_workspace(
-        self,
-        task_id: int,
-        initialize_git: bool = True
-    ) -> WorkspaceMetadata:
+    def create_workspace(self, task_id: int, initialize_git: bool = True) -> WorkspaceMetadata:
         """Create a workspace for a task.
 
         Args:
@@ -521,8 +555,7 @@ class TaskService:
 
         # Create workspace
         metadata = self.workspace_manager.create_workspace(
-            task_id=task_id,
-            initialize_git=initialize_git
+            task_id=task_id, initialize_git=initialize_git
         )
 
         # Update task with workspace path
@@ -600,3 +633,196 @@ class TaskService:
             return None
 
         return Path(task.workspace_path)
+
+    def list_profiles(self) -> list[ProfileInfo]:
+        """List all profile databases in config directory.
+
+        Returns:
+            list[ProfileInfo]: List of profiles with metadata
+        """
+        config_dir = self.config.get_config_dir()
+        profiles = []
+
+        # Find all tasks*.db files
+        for db_file in config_dir.glob("tasks*.db"):
+            # Extract profile name from filename
+            # tasks.db -> "default"
+            # tasks-dev.db -> "dev"
+            # tasks-custom.db -> "custom"
+            filename = db_file.stem
+            if filename == "tasks":
+                profile_name = "default"
+            else:
+                profile_name = filename.replace("tasks-", "")
+
+            stat = db_file.stat()
+
+            # Count tasks in this profile
+            task_count = self._count_tasks_in_profile(profile_name)
+
+            # Check if configured in settings
+            configured = profile_name in self.config.profiles or profile_name in [
+                "default",
+                "dev",
+                "test",
+            ]
+
+            profiles.append(
+                ProfileInfo(
+                    name=profile_name,
+                    database_path=str(db_file),
+                    exists=True,
+                    size_bytes=stat.st_size,
+                    task_count=task_count,
+                    configured=configured,
+                    last_modified=datetime.fromtimestamp(stat.st_mtime),
+                    created=datetime.fromtimestamp(stat.st_ctime),
+                )
+            )
+
+        return sorted(profiles, key=lambda p: p.name)
+
+    def _count_tasks_in_profile(self, profile_name: str) -> int:
+        """Count tasks in a specific profile.
+
+        Args:
+            profile_name: The profile name
+
+        Returns:
+            int: Number of tasks in the profile
+        """
+        from sqlalchemy.orm import Session
+
+        from taskmanager.config import Settings
+        from taskmanager.database import get_engine
+        from taskmanager.models import Task
+
+        # Create a temporary settings object for this profile
+        settings = Settings()
+        settings.profile = profile_name
+
+        try:
+            db_url = settings.get_database_url()
+            engine = get_engine(db_url)
+
+            with Session(engine) as session:
+                count = session.query(Task).count()
+                return count
+        except Exception:
+            # If there's an error, return 0
+            return 0
+
+    def audit_profile(self, profile_name: str) -> ProfileAudit:
+        """Audit a profile before deletion.
+
+        Args:
+            profile_name: The profile name to audit
+
+        Returns:
+            ProfileAudit: Audit information
+
+        Raises:
+            ValueError: If profile doesn't exist
+        """
+        from sqlalchemy.orm import Session
+
+        from taskmanager.config import Settings
+        from taskmanager.database import get_engine
+        from taskmanager.models import Task
+
+        config_dir = self.config.get_config_dir()
+
+        # Find the database file
+        db_filename = "tasks.db" if profile_name == "default" else f"tasks-{profile_name}.db"
+        db_path = config_dir / db_filename
+
+        if not db_path.exists():
+            raise ValueError(f"Profile '{profile_name}' database not found at {db_path}")
+
+        stat = db_path.stat()
+
+        # Count tasks
+        task_count = self._count_tasks_in_profile(profile_name)
+
+        # Check if configured
+        configured = profile_name in self.config.profiles or profile_name in [
+            "default",
+            "dev",
+            "test",
+        ]
+
+        # Get oldest and newest tasks
+        oldest_task = None
+        newest_task = None
+
+        try:
+            temp_settings = Settings()
+            temp_settings.profile = profile_name
+
+            db_url = temp_settings.get_database_url()
+            engine = get_engine(db_url)
+
+            with Session(engine) as session:
+                tasks = session.query(Task).all()
+                if tasks:
+                    # Sort by ID to get oldest and newest
+                    sorted_tasks = sorted(tasks, key=lambda t: t.id)
+                    oldest_task = sorted_tasks[0]
+                    newest_task = sorted_tasks[-1]
+        except Exception:
+            # If we can't get tasks, just skip
+            pass
+
+        return ProfileAudit(
+            name=profile_name,
+            location=str(db_path),
+            size_bytes=stat.st_size,
+            task_count=task_count,
+            configured=configured,
+            last_modified=datetime.fromtimestamp(stat.st_mtime),
+            oldest_task=oldest_task,
+            newest_task=newest_task,
+        )
+
+    def delete_profile(self, profile_name: str) -> None:
+        """Delete a profile database and remove from settings.toml if configured.
+
+        Args:
+            profile_name: The profile name to delete
+
+        Raises:
+            ValueError: If trying to delete a built-in profile or profile not found
+        """
+        from taskmanager.config import get_user_config_path
+
+        # Prevent deletion of built-in profiles
+        if profile_name in ["default", "dev", "test"]:
+            raise ValueError(f"Cannot delete built-in profile '{profile_name}'")
+
+        config_dir = self.config.get_config_dir()
+
+        # Find and delete the database file
+        db_filename = f"tasks-{profile_name}.db"
+        db_path = config_dir / db_filename
+
+        if db_path.exists():
+            db_path.unlink()
+
+        # Remove from settings.toml if configured
+        config_path = get_user_config_path()
+        if config_path.exists():
+            try:
+                # Read current config
+                with open(config_path, "rb") as f:
+                    config = tomllib.load(f)
+
+                # Remove profile if it exists
+                if "profiles" in config and profile_name in config["profiles"]:
+                    del config["profiles"][profile_name]
+
+                    # Write back
+                    with open(config_path, "wb") as f:
+                        tomli_w.dump(config, f)
+            except Exception as e:
+                # Log the error but don't fail the deletion
+                print(f"Warning: Could not remove profile from settings.toml: {e}")
