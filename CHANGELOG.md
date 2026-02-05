@@ -7,36 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.0] - 2026-02-04
+## [0.6.0] - 2026-02-05
 
 ### Added
 
-- **Profile Management CLI Commands** (#58):
-  - New `tasks profile list` command shows all profiles with metadata (size, task count, modified date)
-  - `tasks profile list --json` outputs structured data for scripting
-  - `tasks profile list --configured-only` shows only configured profiles
-  - `tasks profile audit <name>` displays detailed profile information before deletion
-  - `tasks profile delete <name>` safely deletes profiles with explicit "yes" confirmation
-  - CLI-only deletion (no MCP tool) per governance: safety over speed
-  - Built-in profile protection: default, dev, test profiles cannot be deleted
-  - Service layer methods: `list_profiles()`, `audit_profile()`, `delete_profile()`
-  - Comprehensive test suite (16 tests covering all scenarios and edge cases)
-
-## [0.6.0] - 2026-02-04
-
-### Added
-
-- **Task Attachments from Stdin and MCP Payload** (#60):
-  - CLI `tasks attach add` now accepts stdin input with `--filename` flag
-  - Enables piping generated content: `generate-prompt.py | tasks attach add 60 -f TASK_60_PROMPT.md`
-  - New MCP tool `tasks_attach_add_content` for programmatic attachment creation
-  - Service layer method `add_attachment_from_content()` supports bytes and string input
-  - Agents can self-generate and attach prompts without filesystem writes
-  - Comprehensive test coverage (19 tests for stdin scenarios)
-
-- **Delegate Bootstrap Prompt Documentation** (#58):
-  - New `.github/prompts/delegate-bootstrap.prompt.md` with detailed bootstrap instructions
-  - Documents how agents determine task ID from worktree directory and retrieve prompts
+- **Dual-Filename Attachment Indexing** (#59):
+  - Attachment table now stores both original and storage filenames
+  - Database-backed attachment storage with dual-index support
+  - Service methods: `add_db_attachment()`, `get_attachment_by_filename()`, `list_db_attachments()`
+  - Pattern-based retrieval with priority-order matching:
+    1. Exact match on original filename (e.g., `TASK_59_PROMPT.md`)
+    2. Exact match on storage filename (e.g., `20260204_193601_TASK_59_PROMPT.md`)
+    3. Substring match on original filename (e.g., `PROMPT` matches `TASK_59_PROMPT.md`)
+    4. Substring match on storage filename
+  - CLI enhancements: `tasks attach add/list/get` now show both filenames
+  - MCP tool now uses reliable dual-filename matching for agent retrieval
+  - Enables AGENT_GUIDANCE.md bootstrap pattern: agents can use `filename="PROMPT"` reliably
 
 ## [0.5.2] - 2026-02-04
 

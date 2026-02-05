@@ -7,7 +7,7 @@ including the Task entity and associated enumerations.
 from datetime import date, datetime
 from enum import Enum
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, UniqueConstraint
 
 
 class TaskStatus(str, Enum):
@@ -87,3 +87,48 @@ class Task(SQLModel, table=True):
     def __repr__(self) -> str:
         """Return string representation of task."""
         return f"Task(id={self.id}, title='{self.title}', status={self.status.value})"
+
+class Attachment(SQLModel, table=True):
+    """File attachment associated with a task.
+    
+    Attributes:
+        id: Unique identifier for the attachment (auto-generated).
+        task_id: Foreign key to the task this attachment belongs to.
+        original_filename: The original filename provided by user (e.g., "TASK_59_PROMPT.md").
+        storage_filename: Timestamp-prefixed storage filename (e.g., "20260204_193601_TASK_59_PROMPT.md").
+        file_data: Binary content of the file.
+        size_bytes: Size of the file in bytes.
+        created_at: Timestamp when attachment was added.
+    """
+    
+    __tablename__ = "attachment"
+    
+    # Identity
+    id: int | None = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={"autoincrement": True}
+    )
+    
+    # Foreign key
+    task_id: int = Field(foreign_key="task.id", index=True)
+    
+    # Filenames - dual indexing for flexible retrieval
+    original_filename: str = Field(
+        description="Original filename provided by user when attaching"
+    )
+    storage_filename: str = Field(
+        description="Timestamp-prefixed storage filename"
+    )
+    
+    # Content
+    file_data: bytes = Field(description="Binary file content")
+    size_bytes: int = Field(description="File size in bytes")
+    
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.now, index=True)
+    
+    # Unique constraint: prevent duplicate original filenames per task
+    __table_args__ = (
+        UniqueConstraint('task_id', 'original_filename', name='uq_attachment_task_original_filename'),
+    )

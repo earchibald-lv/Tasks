@@ -51,7 +51,7 @@ def get_service(profile: str = None) -> TaskService:
         profile = get_default_profile()
     session = get_session(profile)
     repository = SQLTaskRepository(session)
-    return TaskService(repository)
+    return TaskService(repository, session=session)
 
 
 def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
@@ -682,30 +682,36 @@ def get_attachment_content(
     Fetches the content of a file attached to a task. Useful for reading
     prompt files, documents, and other attachments directly within your
     agent workflow.
+    
+    Supports dual-filename matching:
+    1. Exact match on original filename (e.g., 'TASK_59_PROMPT.md')
+    2. Exact match on storage filename (e.g., '20260204_181256_TASK_59_PROMPT.md')
+    3. Substring match on original filename (e.g., 'PROMPT')
+    4. Substring match on storage filename
 
     Args:
         task_id: ID of the task containing the attachment
-        filename: Name of the attachment file (can be partial match for
-                 stored filenames like '20260204_181256_ORIGINAL_NAME.md')
+        filename: Original filename or partial match for retrieval
         profile: Database profile to use (default, dev, test)
 
     Returns:
-        File content as string (UTF-8 decoded, or raw bytes info if non-text)
+        File content as string (UTF-8 decoded, or error message if not found)
     """
     try:
         service = get_service(profile)
 
-        content = service.get_attachment_content(task_id, filename)
+        # Use dual-filename matching
+        attachment = service.get_attachment_by_filename(task_id, filename)
 
-        if content is None:
+        if attachment is None:
             return f"❌ Attachment '{filename}' not found for task #{task_id}"
 
         # Try to decode as text for display
         try:
-            text_content = content.decode('utf-8')
+            text_content = attachment.file_data.decode('utf-8')
             return text_content
         except UnicodeDecodeError:
-            return f"❌ Could not decode attachment as UTF-8. File appears to be binary ({len(content)} bytes)"
+            return f"❌ Could not decode attachment as UTF-8. File appears to be binary ({len(attachment.file_data)} bytes)"
 
     except ValueError as e:
         return f"❌ Error: {str(e)}"
