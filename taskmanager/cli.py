@@ -676,6 +676,151 @@ def cmd_config_edit(args):
         sys.exit(1)
 
 
+# Profile management commands
+def cmd_profile_list(args):
+    """List all profile databases with metadata."""
+    from taskmanager.repository_impl import SQLTaskRepository
+    from taskmanager.service import TaskService
+
+    settings = get_settings()
+    service = TaskService(SQLTaskRepository(settings))
+
+    try:
+        profiles = service.list_profiles()
+    except Exception as e:
+        print(f"Error listing profiles: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.json:
+        # JSON output for scripting
+        import json
+
+        output = [
+            {
+                "name": p.name,
+                "database_path": str(p.database_path),
+                "exists": p.exists,
+                "size_bytes": p.size_bytes,
+                "task_count": p.task_count,
+                "configured": p.configured,
+                "last_modified": p.last_modified.isoformat() if p.last_modified else None,
+                "created": p.created.isoformat() if p.created else None,
+            }
+            for p in profiles
+        ]
+        print(json.dumps(output, indent=2))
+    else:
+        # Formatted table output
+        if not profiles:
+            print("No profiles found.")
+            return
+
+        print("\nProfile Database Audit:")
+        print("-" * 100)
+
+        headers = ["Profile", "Path", "Tasks", "Size", "Last Modified"]
+        rows = []
+
+        for p in profiles:
+            size_kb = p.size_bytes / 1024 if p.size_bytes else 0
+            last_mod = p.last_modified.strftime("%Y-%m-%d %H:%M") if p.last_modified else "unknown"
+            rows.append(
+                [
+                    p.name,
+                    str(p.database_path).replace(str(Path.home()), "~"),
+                    str(p.task_count),
+                    f"{size_kb:.1f} KB",
+                    last_mod,
+                ]
+            )
+
+        print_table(headers, rows)
+
+
+def cmd_profile_audit(args):
+    """Audit a profile before deletion."""
+    from taskmanager.repository_impl import SQLTaskRepository
+    from taskmanager.service import TaskService
+
+    settings = get_settings()
+    service = TaskService(SQLTaskRepository(settings))
+
+    try:
+        audit = service.audit_profile(args.profile)
+    except Exception as e:
+        print(f"Error auditing profile '{args.profile}': {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\nProfile Audit: {audit.name}")
+    print("-" * 60)
+    print(f"Location:       {str(audit.location).replace(str(Path.home()), '~')}")
+    print(f"Size:           {audit.size_bytes / 1024:.1f} KB")
+    print(f"Task Count:     {audit.task_count}")
+    print(
+        f"Status:         {'Configured in settings.toml' if audit.configured else 'Auto-created'}"
+    )
+    print(
+        f"Last Modified:  {audit.last_modified.strftime('%Y-%m-%d %H:%M %p') if audit.last_modified else 'unknown'}"
+    )
+
+    if audit.oldest_task:
+        print(f"Oldest Task:    #{audit.oldest_task.id} - {audit.oldest_task.title}")
+    else:
+        print("Oldest Task:    (none)")
+
+    if audit.newest_task:
+        print(f"Newest Task:    #{audit.newest_task.id} - {audit.newest_task.title}")
+    else:
+        print("Newest Task:    (none)")
+    print()
+
+
+def cmd_profile_delete(args):
+    """Delete a profile database and configuration."""
+    from taskmanager.repository_impl import SQLTaskRepository
+    from taskmanager.service import TaskService
+
+    profile_name = args.profile
+
+    # Protection for built-in profiles
+    if profile_name in ["default", "dev", "test"]:
+        print(f"❌ Cannot delete built-in profile '{profile_name}'", file=sys.stderr)
+        sys.exit(1)
+
+    settings = get_settings()
+    service = TaskService(SQLTaskRepository(settings))
+
+    # Show audit first
+    try:
+        audit = service.audit_profile(profile_name)
+    except Exception as e:
+        print(f"Error auditing profile '{profile_name}': {e}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"\nProfile to delete: {profile_name}")
+    print(f"  Database: {str(audit.location).replace(str(Path.home()), '~')}")
+    print(f"  Size: {audit.size_bytes / 1024:.1f} KB")
+    print(f"  Tasks: {audit.task_count}")
+    print(
+        f"  Last modified: {audit.last_modified.strftime('%Y-%m-%d %H:%M %p') if audit.last_modified else 'unknown'}"
+    )
+
+    # Explicit confirmation
+    confirmation = input(f"\nDelete profile '{profile_name}'? Type 'yes' to confirm: ")
+
+    if confirmation != "yes":
+        print("Cancelled.")
+        return
+
+    # Delete
+    try:
+        service.delete_profile(profile_name)
+        print(f"✓ Deleted profile '{profile_name}'")
+    except Exception as e:
+        print(f"Error deleting profile: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 # Attachment sub-commands
 def cmd_attach_add(args):
     """Attach a file to a task from file or stdin."""
@@ -1559,6 +1704,23 @@ def main():
     
     config_edit = config_subparsers.add_parser('edit', help='Open configuration file in editor')
     config_edit.set_defaults(func=cmd_config_edit)
+    
+    # Profile sub-commands
+    profile_parser = subparsers.add_parser('profile', help='Manage database profiles')
+    profile_subparsers = profile_parser.add_subparsers(dest='profile_command', help='Profile commands')
+    
+    profile_list = profile_subparsers.add_parser('list', help='List all profile databases')
+    profile_list.add_argument('--json', action='store_true', help='Output as JSON for scripting')
+    profile_list.add_argument('--configured-only', action='store_true', help='Show only configured profiles (exclude auto-created)')
+    profile_list.set_defaults(func=cmd_profile_list)
+    
+    profile_audit = profile_subparsers.add_parser('audit', help='Audit a profile before deletion')
+    profile_audit.add_argument('profile', help='Profile name to audit')
+    profile_audit.set_defaults(func=cmd_profile_audit)
+    
+    profile_delete = profile_subparsers.add_parser('delete', help='Delete a profile (CLI-only for safety)')
+    profile_delete.add_argument('profile', help='Profile name to delete')
+    profile_delete.set_defaults(func=cmd_profile_delete)
     
     # Attach sub-commands
     attach_parser = subparsers.add_parser('attach', help='Manage task attachments')

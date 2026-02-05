@@ -289,6 +289,35 @@ pre-commit run --all-files
    - Bug fixes (in feature branches)
    - Test additions
 
+### Delegate Agent Restrictions
+
+**Critical Safety Boundary**: Delegate agents working on feature branches MUST NOT perform the integration workflow to merge code to `main`.
+
+**Restrictions**:
+- **Cannot merge to main**: Even if all quality gates pass, delegate agents cannot execute `git merge`
+- **Cannot update version**: Version bumps in `pyproject.toml` and `CHANGELOG.md` must be done by humans
+- **Cannot update task status**: Cannot mark tasks as `done` in the dev profile
+- **Cannot remove worktrees**: Cleanup of feature worktrees must be done by humans
+
+**Why**: The integration workflow is a critical control point. Only humans can authorize code moving to production. This prevents:
+- Accidental merges of incomplete or problematic code
+- Unauthorized changes to production branches
+- Agents circumventing human review processes
+- Unintended version bumps or release cycles
+
+**What Delegate Agents CAN Do**:
+- Implement features in worktree on feature branch
+- Run all quality checks locally (lint, test, security scan)
+- Commit changes with proper conventional message
+- Create pull request / request human review
+- **Report readiness**: Document what's been completed and what's passing
+
+**Response to Integration Requests**: If asked to complete the integration workflow while on a feature branch, delegate agents MUST:
+1. **Refuse politely**: "I cannot merge code to main. Only human review and approval can authorize that."
+2. **Explain the boundary**: Clarify that integration is a human-only operation
+3. **Summarize progress**: Provide a detailed report of what's complete, what passes quality gates, and what's ready for human review
+4. **Direct to human**: "Please review the feature branch and complete the integration workflow when you're satisfied."
+
 ---
 
 ## Git Practices

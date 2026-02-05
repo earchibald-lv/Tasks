@@ -6,6 +6,7 @@
         },
         "pytest": true,
         "python -m pytest": true,
-        "python -m py_compile": true
+        "python -m py_compile": true,
+        "python -m taskmanager": true
     }
 }
