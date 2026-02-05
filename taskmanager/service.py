@@ -5,8 +5,10 @@ layer (CLI, MCP) and the repository layer, implementing core business
 logic and validation rules.
 """
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+
+from sqlmodel import Session
 
 from taskmanager.attachments import (
     AttachmentManager,
@@ -14,7 +16,7 @@ from taskmanager.attachments import (
     parse_attachments,
     serialize_attachments,
 )
-from taskmanager.models import Priority, Task, TaskStatus
+from taskmanager.models import Priority, Task, TaskStatus, Attachment
 from taskmanager.repository import TaskRepository
 from taskmanager.workspace import WorkspaceManager, WorkspaceMetadata
 
@@ -26,13 +28,15 @@ class TaskService:
     ensuring consistency across CLI and MCP server interfaces.
     """
 
-    def __init__(self, repository: TaskRepository) -> None:
+    def __init__(self, repository: TaskRepository, session: Session | None = None) -> None:
         """Initialize the task service.
 
         Args:
             repository: TaskRepository implementation for data access.
+            session: Optional SQLModel Session for database operations on attachments.
         """
         self.repository = repository
+        self.session = session
         self.attachment_manager = AttachmentManager()
         self.workspace_manager = WorkspaceManager()
 
@@ -486,6 +490,135 @@ class TaskService:
                 return existing_file.read_bytes()
 
         return None
+
+    def add_db_attachment(
+        self,
+        task_id: int,
+        original_filename: str,
+        content: bytes
+    ) -> Attachment:
+        """Add a file attachment to a task in the database.
+        
+        Args:
+            task_id: The task ID
+            original_filename: Original filename provided by user
+            content: Binary file content
+            
+        Returns:
+            Attachment: The created attachment record
+            
+        Raises:
+            ValueError: If task not found or session not available
+        """
+        if not self.session:
+            raise ValueError("Database session not available for attachment operations")
+        
+        # Verify task exists
+        task = self.get_task(task_id)
+        
+        # Generate storage filename with timestamp prefix
+        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        storage_filename = f"{timestamp}_{original_filename}"
+        
+        # Create attachment record
+        attachment = Attachment(
+            task_id=task_id,
+            original_filename=original_filename,
+            storage_filename=storage_filename,
+            file_data=content,
+            size_bytes=len(content),
+        )
+        
+        self.session.add(attachment)
+        self.session.commit()
+        self.session.refresh(attachment)
+        return attachment
+
+    def get_attachment_by_filename(
+        self,
+        task_id: int,
+        filename: str
+    ) -> Attachment | None:
+        """Retrieve attachment using dual-filename matching with priority order.
+        
+        Matching priority:
+        1. Exact match on original_filename
+        2. Exact match on storage_filename
+        3. Substring match on original_filename
+        4. Substring match on storage_filename
+        5. None if no match found
+        
+        Args:
+            task_id: The task ID
+            filename: Original or partial filename to match
+            
+        Returns:
+            Attachment if found, None otherwise
+        """
+        if not self.session:
+            return None
+        
+        # Verify task exists
+        task = self.get_task(task_id)
+        
+        # Query for attachments of this task
+        query = self.session.query(Attachment).filter(
+            Attachment.task_id == task_id
+        )
+        
+        # Priority 1: Exact match on original_filename
+        exact_match = query.filter(
+            Attachment.original_filename == filename
+        ).first()
+        if exact_match:
+            return exact_match
+        
+        # Priority 2: Exact match on storage_filename
+        exact_match = query.filter(
+            Attachment.storage_filename == filename
+        ).first()
+        if exact_match:
+            return exact_match
+        
+        # Priority 3: Substring on original_filename
+        substring_match = query.filter(
+            Attachment.original_filename.ilike(f"%{filename}%")
+        ).first()
+        if substring_match:
+            return substring_match
+        
+        # Priority 4: Substring on storage_filename
+        substring_match = query.filter(
+            Attachment.storage_filename.ilike(f"%{filename}%")
+        ).first()
+        if substring_match:
+            return substring_match
+        
+        return None
+
+    def list_db_attachments(self, task_id: int) -> list[Attachment]:
+        """List all database-stored attachments for a task.
+        
+        Args:
+            task_id: The task ID
+            
+        Returns:
+            List of attachments
+            
+        Raises:
+            ValueError: If task not found
+        """
+        if not self.session:
+            return []
+        
+        # Verify task exists
+        task = self.get_task(task_id)
+        
+        attachments = self.session.query(Attachment).filter(
+            Attachment.task_id == task_id
+        ).order_by(Attachment.created_at.desc()).all()
+        
+        return attachments
 
     def get_all_used_tags(self) -> list[str]:
         """Get all unique tags currently used across all tasks.

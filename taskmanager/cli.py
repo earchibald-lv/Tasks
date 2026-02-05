@@ -106,7 +106,7 @@ def get_service() -> TaskService:
     init_db(profile)
     session = get_session(profile)
     repository = SQLTaskRepository(session)
-    return TaskService(repository)
+    return TaskService(repository, session=session)
 
 
 def is_glow_available() -> bool:
@@ -687,12 +687,17 @@ def cmd_attach_add(args):
             print(f"Error: Not a file: {file_path}", file=sys.stderr)
             sys.exit(1)
         
-        metadata = service.add_attachment(args.task_id, file_path)
+        # Read file content
+        file_content = file_path.read_bytes()
+        original_filename = file_path.name
+        
+        # Add to database with dual-filename indexing
+        attachment = service.add_db_attachment(args.task_id, original_filename, file_content)
         
         print(f"✓ Attached file to task #{args.task_id}")
-        print(f"  Original name: {metadata['original_name']}")
-        print(f"  Stored as: {metadata['filename']}")
-        print(f"  Size: {metadata['size']:,} bytes")
+        print(f"  Original name: {attachment.original_filename}")
+        print(f"  Stored as: {attachment.storage_filename}")
+        print(f"  Size: {attachment.size_bytes:,} bytes")
     
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
@@ -703,7 +708,7 @@ def cmd_attach_list(args):
     """List all attachments for a task."""
     try:
         service = get_service()
-        attachments = service.list_attachments(args.task_id)
+        attachments = service.list_db_attachments(args.task_id)
         
         if not attachments:
             print(f"Task #{args.task_id} has no attachments.")
@@ -711,18 +716,16 @@ def cmd_attach_list(args):
         
         print(f"\nAttachments for Task #{args.task_id}")
         print("-" * 80)
-        print(f"{'Filename':<30} {'Original Name':<30} {'Size':<10} {'Added':<20}")
-        print("-" * 80)
         
         for attachment in attachments:
-            size_kb = attachment["size"] / 1024
+            size_kb = attachment.size_bytes / 1024
             size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
-            added_dt = datetime.fromisoformat(attachment["added_at"])
-            added_str = added_dt.strftime("%Y-%m-%d %H:%M")
+            added_str = attachment.created_at.strftime("%Y-%m-%d %H:%M")
             
-            print(f"{attachment['filename']:<30} {attachment['original_name']:<30} {size_str:<10} {added_str:<20}")
-        
-        print()
+            print(f"  {attachment.original_filename}")
+            print(f"    (stored as: {attachment.storage_filename}, {size_str})")
+            print(f"    (added: {added_str})")
+            print()
     
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
@@ -777,12 +780,14 @@ def cmd_attach_get(args):
     try:
         service = get_service()
         
-        # Get attachment content
-        content = service.get_attachment_content(args.task_id, args.filename)
+        # Get attachment using dual-filename matching
+        attachment = service.get_attachment_by_filename(args.task_id, args.filename)
         
-        if content is None:
+        if attachment is None:
             print(f"Attachment '{args.filename}' not found for task #{args.task_id}", file=sys.stderr)
             sys.exit(1)
+        
+        content = attachment.file_data
         
         # Output based on format
         if args.format == "raw":
@@ -792,7 +797,8 @@ def cmd_attach_get(args):
             # JSON-encoded content
             output_dict = {
                 "task_id": args.task_id,
-                "filename": args.filename,
+                "original_filename": attachment.original_filename,
+                "storage_filename": attachment.storage_filename,
                 "content": content.decode('utf-8', errors='replace'),
                 "size": len(content)
             }

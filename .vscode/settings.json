@@ -5,9 +5,6 @@
             "matchCommandLine": true
         },
         "pytest": true,
-        "/^python -m py_compile mcp_server/server\\.py$/": {
-            "approve": true,
-            "matchCommandLine": true
-        }
+        "alembic upgrade": true
     }
 }
