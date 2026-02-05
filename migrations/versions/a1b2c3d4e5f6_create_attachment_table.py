@@ -17,22 +17,27 @@ depends_on = None
 
 
 def upgrade() -> None:
-    """Create the attachment table."""
-    op.create_table(
-        'attachment',
-        sa.Column('id', sa.Integer(), sa.Identity(always=False), nullable=False),
-        sa.Column('task_id', sa.Integer(), nullable=False),
-        sa.Column('original_filename', sa.String(), nullable=False),
-        sa.Column('storage_filename', sa.String(), nullable=False),
-        sa.Column('file_data', sa.LargeBinary(), nullable=False),
-        sa.Column('size_bytes', sa.Integer(), nullable=False),
-        sa.Column('created_at', sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(['task_id'], ['task.id'], ),
-        sa.PrimaryKeyConstraint('id'),
-        sa.UniqueConstraint('task_id', 'original_filename', name='uq_attachment_task_original_filename'),
-    )
-    op.create_index(op.f('ix_attachment_created_at'), 'attachment', ['created_at'], unique=False)
-    op.create_index(op.f('ix_attachment_task_id'), 'attachment', ['task_id'], unique=False)
+    """Create the attachment table if it doesn't already exist."""
+    # Check if table already exists (may have been created by SQLModel.metadata.create_all)
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    
+    if 'attachment' not in inspector.get_table_names():
+        op.create_table(
+            'attachment',
+            sa.Column('id', sa.Integer(), sa.Identity(always=False), nullable=False),
+            sa.Column('task_id', sa.Integer(), nullable=False),
+            sa.Column('original_filename', sa.String(), nullable=False),
+            sa.Column('storage_filename', sa.String(), nullable=False),
+            sa.Column('file_data', sa.LargeBinary(), nullable=False),
+            sa.Column('size_bytes', sa.Integer(), nullable=False),
+            sa.Column('created_at', sa.DateTime(), nullable=False),
+            sa.ForeignKeyConstraint(['task_id'], ['task.id'], ),
+            sa.PrimaryKeyConstraint('id'),
+            sa.UniqueConstraint('task_id', 'original_filename', name='uq_attachment_task_original_filename'),
+        )
+        op.create_index(op.f('ix_attachment_created_at'), 'attachment', ['created_at'], unique=False)
+        op.create_index(op.f('ix_attachment_task_id'), 'attachment', ['task_id'], unique=False)
 
 
 def downgrade() -> None:
