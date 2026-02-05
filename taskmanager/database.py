@@ -5,6 +5,7 @@ including table creation and engine initialization.
 """
 
 import os
+import logging
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import Engine
@@ -63,9 +64,15 @@ def init_db(profile: str = "default") -> None:
     alembic_ini = os.path.join(os.path.dirname(__file__), '..', 'alembic.ini')
     
     if os.path.exists(alembic_ini):
+        # Suppress Alembic's noisy logging
+        alembic_logger = logging.getLogger('alembic')
+        alembic_logger.setLevel(logging.ERROR)
+        
         # Configure Alembic
         alembic_cfg = AlembicConfig(alembic_ini)
         alembic_cfg.set_main_option('script_location', migrations_dir)
+        # Disable Alembic's default logging setup
+        alembic_cfg.set_section_hook = None
         
         # Get the database URL for this profile
         settings = create_settings_for_profile(profile)
@@ -76,7 +83,7 @@ def init_db(profile: str = "default") -> None:
             command.upgrade(alembic_cfg, 'head')
         except Exception as e:
             # Log warning but don't fail - base tables already created
-            print(f"Warning: Alembic migration issue: {e}")
+            print(f"Warning: Alembic migration issue: {e}", file=__import__('sys').stderr)
 
 
 def get_session(profile: str = "default") -> Session:
