@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-02-05
+
+### Added
+
+- **Point-in-Time Database Backups** (#1):
+  - New `taskmanager backup` subcommand for backup management
+  - Automatic backups before Alembic migrations (`backup_before_migration()`)
+  - Backup rotation: Keep max 10 backups per profile, auto-delete oldest
+  - Backup storage: `~/.config/taskmanager/backups/{profile}/` with timestamp naming
+  - CLI commands: `list`, `create`, `restore` with filtering and recovery options
+  - Result: Protection against data loss during schema migrations
+  - Result: User-friendly backup/recovery with automatic cleanup
+  - Implementation: Zero external dependencies (stdlib only)
+
 ## [0.8.4] - 2026-02-05
 
 ### Changed
