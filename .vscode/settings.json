@@ -5,9 +5,8 @@
             "matchCommandLine": true
         },
         "pytest": true,
-        "/^python -m py_compile mcp_server/server\\.py$/": {
-            "approve": true,
-            "matchCommandLine": true
-        }
+        "python -m pytest": true,
+        "python -m py_compile": true,
+        "python -m taskmanager": true
     }
 }
