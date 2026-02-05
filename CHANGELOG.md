@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-02-04
+
+### Fixed
+
+- **Critical Regression: Attachment Table Missing from Dev Database** (#67):
+  - Root cause 1: Database initialization called `SQLModel.metadata.create_all()` without importing models
+  - Root cause 2: Alembic migrations were never run (init_db had no migration logic)
+  - Root cause 3: Database config paths had double `/taskmanager/` directory
+  - Fixed: Import models in database.py to register with SQLModel.metadata
+  - Fixed: Implement two-step initialization (SQLModel tables → Alembic migrations)
+  - Fixed: Correct database paths in config defaults and user config
+  - Fixed: Make attachment migration idempotent (check if table exists before creating)
+  - Fixed: Suppress Alembic logging spam in CLI output (INFO logs gone, errors still shown)
+  - Result: Attachment table now created correctly for all profiles
+  - Result: Migrations properly applied without conflicts or noise
+
 ## [0.8.0] - 2026-02-04
 
 ### Added
