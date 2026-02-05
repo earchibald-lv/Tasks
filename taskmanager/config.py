@@ -116,11 +116,11 @@ class DatabaseProfiles(BaseModel):
     """Database URLs for different profiles."""
 
     default: str = Field(
-        default="sqlite:///{config}/taskmanager/tasks.db",
+        default="sqlite:///{config}/tasks.db",
         description="Production database",
     )
     dev: str = Field(
-        default="sqlite:///{config}/taskmanager/tasks-dev.db",
+        default="sqlite:///{config}/tasks-dev.db",
         description="Development database",
     )
     test: str = Field(
@@ -547,8 +547,8 @@ def create_default_config(path: Path) -> None:
         },
         "database": {
             "profiles": {
-                "default": "sqlite:///{config}/taskmanager/tasks.db",
-                "dev": "sqlite:///{config}/taskmanager/tasks-dev.db",
+                "default": "sqlite:///{config}/tasks.db",
+                "dev": "sqlite:///{config}/tasks-dev.db",
                 "test": "sqlite:///:memory:",
             }
         },
