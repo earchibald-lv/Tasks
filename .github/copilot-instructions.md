@@ -223,6 +223,60 @@ fi
 2. **Fallback**: `tasks` CLI commands (when MCP equivalent unavailable)
 3. **Action on Gap**: File defect task when CLI is required but MCP should handle it
 
+### Resilience Strategy: MCP + CLI Duality
+
+**Key Principle**: All critical operations must work with EITHER MCP tools OR CLI, not just one.
+
+**Why**: MCP server availability is not guaranteed in all environments (especially isolated worktrees). Agents must not get blocked if MCP tools are unavailable.
+
+**Pattern**:
+
+For each critical operation, implement BOTH paths:
+
+```python
+# Example: Retrieve attachment
+
+# Try MCP first (preferred)
+try:
+    content = mcp_tasks_mcp_get_attachment_content(
+        task_id=58,
+        filename="PROMPT",
+        profile="dev"
+    )
+except (NameError, AttributeError):
+    # MCP tools not available, fallback to CLI
+    import subprocess
+    result = subprocess.run(
+        ["tasks", "--profile", "dev", "attach", "get", "58", "TASK_58_PROMPT.md"],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Both MCP and CLI failed: {result.stderr}")
+    content = result.stdout
+```
+
+**For Each Operation**:
+
+| Operation | MCP Tool | CLI Fallback |
+|-----------|----------|--------------|
+| Get attachment | `mcp_tasks_mcp_get_attachment_content()` | `tasks --profile dev attach get {{id}} {{file}}` |
+| List attachments | N/A | `tasks --profile dev attach list {{id}}` |
+| Update task status | `mcp_tasks_mcp_update_task()` | `tasks --profile dev update {{id}} --status {{status}}` |
+| List tasks | `mcp_tasks_mcp_list_tasks()` | `tasks --profile dev list` |
+| Get current time | `mcp_tasks_mcp_get_current_time()` | `date` (less precise) |
+
+**Decision Logic**:
+1. Attempt MCP tool call
+2. If MCP not available → catch exception and use CLI
+3. If CLI fails → raise error with clear diagnosis
+4. Always prefer MCP (faster, more reliable), but don't depend on it
+
+**Error Messages**:
+When MCP is unavailable, be clear:
+- ✅ "MCP tools not available, falling back to CLI"
+- ❌ "MCP tool failed" (confusing - is it broken or just unavailable?)
+
 ### tasks-mcp Tools
 
 Use for all task operations:

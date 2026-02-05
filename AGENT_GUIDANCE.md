@@ -71,21 +71,50 @@ else:
 
 ### Step 2: Retrieve the Attached Task Prompt
 
-**Use the MCP tool to read the attached prompt**:
+**Option A: Use MCP tool (Preferred if available)**:
 
 Use `mcp_tasks-mcp_get_attachment_content` with:
 - `task_id`: The numeric ID from Step 1
-- `filename`: Partial match for the attached prompt (typically contains "PROMPT" or "DESIGN")
+- `filename`: Partial match for the attached prompt (typically contains "PROMPT")
+- `profile`: `"dev"`
 
 Example:
 ```python
 # Use the MCP tool to retrieve the prompt
 response = mcp_tasks_mcp_get_attachment_content(
     task_id=int(task_id),
-    filename="PROMPT"  # Partial match - will find 20260204_183302_TASK_57_PROMPT.md
+    filename="PROMPT",
+    profile="dev"
 )
-prompt_content = response  # This is the full text of the attached prompt
+prompt_content = response  # Full text of the attached prompt
 ```
+
+**Option B: Use CLI fallback (if MCP tools unavailable)**:
+
+If MCP tools are not available (no error message, just silently fail), use the CLI:
+
+```bash
+# List attachments to find the exact filename
+tasks --profile dev attach list {{task_id}}
+
+# Example output:
+# Attachments for Task #58:
+# - 20260204_183302_TASK_58_PROMPT.md (8.5 KB)
+
+# Retrieve the attachment
+tasks --profile dev attach get {{task_id}} {{filename}}
+
+# Example:
+tasks --profile dev attach get 58 TASK_58_PROMPT.md > prompt.md
+
+# Read the prompt file
+cat prompt.md
+```
+
+**Decision Logic**:
+1. Try MCP first: `@mcp_tasks-mcp_get_attachment_content(...)`
+2. If MCP is not available → use CLI: `tasks --profile dev attach list {{id}}` then `tasks --profile dev attach get {{id}} {{filename}}`
+3. Both methods return the same prompt content
 
 ### Step 3: Execute the Prompt Instructions
 
@@ -117,17 +146,44 @@ prompt_content = response  # This is the full text of the attached prompt
 - Then launch VS Code in that worktree: `code -n /path/to/Tasks-{{N}}`
 - Return to Step 1 when you're in the correct directory.
 
-**If you cannot retrieve the prompt**:
-1. Verify you're in a worktree (path should NOT be the main Tasks project)
-2. Verify the task exists in the DEV profile: `tasks --profile dev show {{id}}`
-   - **CRITICAL**: Always use `--profile dev` for development work on Tasks itself
-3. List attachments: `tasks --profile dev attach list {{id}}`
-4. If no attachments exist, ask the human to attach the prompt file using:
-   - MCP tool: `mcp_tasks-mcp_add_attachment_from_content` (preferred)
-   - Task ID: {{id}}, Profile: `dev`, Filename: `TASK_{{id}}_PROMPT.md`
+**If you cannot retrieve the prompt (MCP unavailable)**:
+
+Fall back to CLI approach:
+
+```bash
+# 1. Verify you're in a worktree (not the main Tasks directory)
+pwd  # Should NOT be /Users/Eugene.Archibald/Documents/Tasks
+
+# 2. Extract task ID from directory name
+TASK_ID=$(basename $(pwd) | sed 's/Tasks-//')
+echo "Task ID: $TASK_ID"
+
+# 3. List attachments in dev profile
+tasks --profile dev attach list $TASK_ID
+
+# 4. Retrieve the prompt file
+# Example: if filename is "20260204_183302_TASK_58_PROMPT.md"
+tasks --profile dev attach get $TASK_ID TASK_${TASK_ID}_PROMPT.md > prompt.md
+
+# 5. Read the prompt
+cat prompt.md
+```
+
+**Verify task exists**:
+```bash
+tasks --profile dev show {{id}}
+# Should show task details and status
+# If task not found: ask human to verify task ID matches directory name
+```
+
+**If no attachments exist**:
+1. Verify the human created and attached the prompt file
+2. Ask the human to attach using: `mcp_tasks-mcp_add_attachment_from_content`
+3. Parameters: task_id={{id}}, filename=TASK_{{id}}_PROMPT.md, profile=dev
+4. Wait for attachment, then retry Step 2
 
 **If the prompt file is corrupted or incomplete**:
-1. Save a copy: `tasks --profile dev attach get {{id}} {{filename}} > prompt_backup.txt`
+1. Save a backup: `tasks --profile dev attach get {{id}} {{filename}} > backup.txt`
 2. Report the issue to the human
 3. Wait for updated prompt attachment via MCP tool
 
