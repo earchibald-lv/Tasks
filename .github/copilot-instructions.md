@@ -131,6 +131,7 @@ Use for all task operations:
 - `mcp_tasks-mcp_update_task` / `mcp_tasks-mcp_update_task_interactive`
 - `mcp_tasks-mcp_list_tasks`
 - `mcp_tasks-mcp_create_workspace` / `mcp_tasks-mcp_ensure_workspace`
+- `mcp_tasks-mcp_get_attachment_content` - Retrieve attachment file content (essential for task delegation agents to read attached prompts)
 - Time utilities: `mcp_tasks-mcp_get_current_time`, `mcp_tasks-mcp_calculate_time_delta`
 
 ### atlassian-mcp Tools
