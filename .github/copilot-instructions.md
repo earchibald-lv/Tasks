@@ -81,6 +81,19 @@ When work is complete in the worktree:
 4. Verify commit: `git log -1`
 5. Ready for merge to main after quality gates pass
 
+**Integration to Main**:
+After code review and quality gates pass:
+1. Merge with fast-forward: `git merge --ff feature/descriptive-name`
+2. Update version in `pyproject.toml` following [Semantic Versioning](#version-management):
+   - **MAJOR**: Breaking API changes
+   - **MINOR**: New backward-compatible features
+   - **PATCH**: Bug fixes and documentation
+3. Update `CHANGELOG.md` following [Keep a Changelog](https://keepachangelog.com/) format
+4. Commit version bump: `git commit -m "chore(#N): bump to vX.Y.Z"`
+5. Install updated package: `pipx install --force -e .`
+6. Remove worktree: `git worktree remove ../Tasks-N`
+7. Mark task complete: `tasks --profile dev update N --status done`
+
 ### Background Agent Workflow (Future)
 
 **Current Status**: Organization does not permit GitHub Copilot CLI for Background Agents.

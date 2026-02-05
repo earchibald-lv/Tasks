@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-02-04
+
+### Added
+
+- **Attachment Content Retrieval** (#57):
+  - New `tasks attach get <task-id> <filename>` CLI command for retrieving attachment content
+  - Supports multiple output formats: raw (default), text, and JSON
+  - New `tasks_attach_get_content` MCP tool for programmatic access
+  - Enables agents to retrieve attached prompts and documents directly
+
+### Changed
+
+- **Governance & Integration Documentation**:
+  - Added semantic versioning to integration workflow in copilot-instructions.md
+  - Documented version bumping as required step before merge to main
+  - Added temporary file location requirements for agent efficiency
+  - Clarified agent workflow for attachment-based task prompts
+
 ## [0.5.0] - 2026-02-04
 
 ### Added
