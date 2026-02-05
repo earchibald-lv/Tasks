@@ -21,6 +21,15 @@ try:
 except ImportError:
     SHTAB_AVAILABLE = False
 
+try:
+    from rich.console import Console
+    from rich.table import Table
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+    Console = None
+    Table = None
+
 from taskmanager.config import get_settings
 from taskmanager.database import get_session, init_db
 from taskmanager.models import Priority, TaskStatus
@@ -31,6 +40,26 @@ from taskmanager.mcp_discovery import get_allowed_tools, create_ephemeral_sessio
 
 # Global automation flag - can be set via environment variable
 _automation_mode = os.getenv("TASKS_AUTOMATION", "").lower() in ("1", "true", "yes")
+
+# Initialize Rich console if available
+console = Console() if RICH_AVAILABLE else None
+
+
+def print_table(headers, rows):
+    """Print a formatted table using Rich if available, otherwise plain text."""
+    if RICH_AVAILABLE and console and Table:
+        table = Table()
+        for header in headers:
+            table.add_column(header)
+        for row in rows:
+            table.add_row(*[str(cell) for cell in row])
+        console.print(table)
+    else:
+        # Fallback: plain text table
+        print(" | ".join(f"{h:<15}" for h in headers))
+        print("-" * (len(headers) * 17))
+        for row in rows:
+            print(" | ".join(f"{str(v):<15}" for v in row))
 
 
 class HelpfulArgumentParser(argparse.ArgumentParser):
@@ -224,7 +253,6 @@ def cmd_list(args):
         else:  # table format
             # Header
             print(f"\nTasks ({len(tasks)} of {total})")
-            print("-" * 100)
             
             # Column headers
             headers = ["ID", "Title", "Status", "Priority", "Due Date"]
@@ -237,10 +265,8 @@ def cmd_list(args):
             if args.show_updated:
                 headers.append("Updated")
             
-            print(" | ".join(f"{h:<15}" for h in headers))
-            print("-" * 100)
-            
             # Rows
+            rows = []
             for task in tasks:
                 status_icons = {
                     TaskStatus.PENDING: "○",
@@ -282,9 +308,9 @@ def cmd_list(args):
                 if args.show_updated:
                     row.append(task.updated_at.strftime("%Y-%m-%d") if task.updated_at else "")
                 
-                print(" | ".join(f"{str(v):<15}" for v in row))
+                rows.append(row)
             
-            print("-" * 100)
+            print_table(headers, rows)
             
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
