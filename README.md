@@ -646,7 +646,7 @@ The first time you run a task command, the database is automatically created wit
 ┌─────────────────────────────────────────┐
 │   Interface Layer                       │
 │  ┌──────────────┐    ┌──────────────┐   │
-│  │ CLI (Typer)  │    │ MCP Server   │   │
+│  │ CLI (argparse)  │    │ MCP Server   │   │
 │  └──────────────┘    └──────────────┘   │
 └─────────────────────────────────────────┘
            ↓                  ↓
@@ -679,7 +679,7 @@ The first time you run a task command, the database is automatically created wit
 ```
 taskmanager/
 ├── taskmanager/              # Core application
-│   ├── cli.py                # Typer CLI interface
+│   ├── cli.py                # argparse CLI interface
 │   ├── models.py             # SQLModel data models
 │   ├── repository.py         # Repository protocol
 │   ├── repository_impl.py    # SQLite implementation
@@ -754,7 +754,7 @@ The database will be recreated on next use.
 - **Python 3.12/3.13** - Modern Python with type hints
 - **SQLModel** - Type-safe ORM with Pydantic integration
 - **SQLite** - Zero-config persistent storage
-- **Typer** - CLI framework with excellent UX
+- **argparse** - Python's built-in CLI framework with rich integration
 - **Rich** - Beautiful terminal formatting
 
 ### MCP Server
@@ -810,4 +810,4 @@ This is currently a personal project. If you'd like to contribute:
 
 - Built with [FastMCP](https://github.com/jlowin/fastmcp) by Marvin/Prefect team
 - Uses [Model Context Protocol](https://modelcontextprotocol.io/) by Anthropic
-- CLI powered by [Typer](https://typer.tiangolo.com/) and [Rich](https://rich.readthedocs.io/)
+- CLI powered by [argparse](https://docs.python.org/3/library/argparse.html) and [Rich](https://rich.readthedocs.io/)
