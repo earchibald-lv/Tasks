@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-02-05
+
+### Added
+
+- **Dual-Filename Attachment Indexing** (#59):
+  - Attachment table now stores both original and storage filenames
+  - Database-backed attachment storage with dual-index support
+  - Service methods: `add_db_attachment()`, `get_attachment_by_filename()`, `list_db_attachments()`
+  - Pattern-based retrieval with priority-order matching:
+    1. Exact match on original filename (e.g., `TASK_59_PROMPT.md`)
+    2. Exact match on storage filename (e.g., `20260204_193601_TASK_59_PROMPT.md`)
+    3. Substring match on original filename (e.g., `PROMPT` matches `TASK_59_PROMPT.md`)
+    4. Substring match on storage filename
+  - CLI enhancements: `tasks attach add/list/get` now show both filenames
+  - MCP tool now uses reliable dual-filename matching for agent retrieval
+  - Enables AGENT_GUIDANCE.md bootstrap pattern: agents can use `filename="PROMPT"` reliably
+
 ## [0.5.2] - 2026-02-04
 
 ### Added
