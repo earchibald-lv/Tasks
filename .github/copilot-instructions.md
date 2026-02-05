@@ -20,12 +20,28 @@
 ### Standard Process
 
 1. **Task Creation**: Create task via `tasks-mcp` (dev profile is the queue for development work)
-2. **Prompt File**: Create detailed prompt instruction file describing the feature
+2. **Agent Prompt**: Create detailed prompt instruction file and attach to the task
 3. **Worktree Setup**: Create feature branch and worktree
 4. **VS Code Isolation**: Launch new window with `code -n {{worktree-path}}`
 5. **Implementation**: Develop in isolated environment
 6. **Quality Gates**: Lint, security scan, test before merge
 7. **Merge & Cleanup**: Fast-forward merge to main, remove worktree
+
+### Prompt File Attachment
+
+**Purpose**: Agent instructions are attached to tasks, not stored in the repository.
+
+**Process**:
+1. Create detailed prompt file locally describing the feature requirements, acceptance criteria, and implementation guidance
+2. Attach to the task using `tasks attach add {{task-id}} {{prompt-file}}`
+3. Name convention: `TASK_PROMPT.md` or `FEATURE_DESIGN.md`
+4. When worktree agent retrieves the task, the prompt attachment is available for reading
+
+**Benefits**:
+- Repository stays clean (no worktree cruft)
+- Prompts versioned with task metadata
+- Easier to iterate: update attachment, agent re-reads latest prompt
+- Task system becomes single source of truth for agent instructions
 
 ### Worktree-Based Development
 
@@ -35,19 +51,34 @@
 
 **Pattern**:
 ```bash
+# Create prompt file and attach to task #N (in main workspace)
+# File: TASK_PROMPT.md (local, temporary)
+tasks --profile dev attach add N TASK_PROMPT.md
+
 # Create worktree for task #N
 git worktree add ../Tasks-N -b feature/descriptive-name
 
-# Create prompt file first (in main workspace)
-# File: Tasks-N/TASK_PROMPT.md or Tasks-N/FEATURE_DESIGN.md
-
 # Launch isolated VS Code window
 code -n /path/to/Tasks-N
+
+# Agent reads task #N (with attached prompt) from database
+# Deletes TASK_PROMPT.md after task complete
 ```
 
 **Naming Convention**:
-- Directory: `Tasks-{{task-id}}` (e.g., `Tasks-52`)
-- Branch: `feature/N-{{descriptive-name}}` (e.g., `feature/52-enhanced-cli-help`)
+- Directory: `Tasks-{{task-id}}` (e.g., `Tasks-55`)
+- Branch: `feature/{{descriptive-name}}` (e.g., `feature/task-attachment-prompts`)
+- Prompt: Attached to task as `.md` file, not in repository
+
+**Committing Changes**:
+When work is complete in the worktree:
+1. Review changes: `git status` and `git diff`
+2. Stage changes: `git add .`
+3. Commit with conventional message: `git commit -m "type(#N): description"`
+   - Example: `feat(#55): implement task attachment workflow`
+   - Reference the task ID in the commit message
+4. Verify commit: `git log -1`
+5. Ready for merge to main after quality gates pass
 
 ### Background Agent Workflow (Future)
 
@@ -290,8 +321,12 @@ Tasks/                          # Main workspace
 └── CHANGELOG.md                # Release history
 
 Tasks-N/                        # Feature worktrees (isolated)
-├── TASK_PROMPT.md              # Feature design/requirements
-└── (mirror of main structure)
+├── (mirror of main structure)
+│   ├── taskmanager/
+│   ├── tests/
+│   └── ...
+
+**Note**: Prompt files are attached to tasks in the database, not stored in worktree.
 ```
 
 ---
