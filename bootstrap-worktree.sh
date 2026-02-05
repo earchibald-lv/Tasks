@@ -1,25 +1,9 @@
 #!/bin/bash
 # Bootstrap worktree environment for Tasks project
-# Run this in a worktree window to enable MCP tools and set up dev profile
+# Run this in a worktree window to set up dev profile and configuration
 # Usage: bash bootstrap-worktree.sh
-# To stop MCP server: bash bootstrap-worktree.sh stop
 
 set -e  # Exit on error
-
-# Handle cleanup command
-if [[ "$1" == "stop" ]]; then
-    if [[ -f ".mcp_server.pid" ]]; then
-        PID=$(cat .mcp_server.pid)
-        if kill -0 $PID 2>/dev/null; then
-            kill $PID
-            echo "✅ Stopped MCP server (PID $PID)"
-        fi
-        rm .mcp_server.pid
-    else
-        echo "⚠️  No MCP server PID file found"
-    fi
-    exit 0
-fi
 
 echo "🔧 Bootstrapping worktree environment for Tasks project..."
 echo ""
@@ -147,67 +131,41 @@ else
     echo "   Install Python 3 before running tasks"
 fi
 
-# 9. Start MCP server as background process
-echo ""
-echo "9️⃣  Starting MCP server as background process..."
-# Kill any existing MCP server from this worktree
-pkill -f "mcp_server.server" 2>/dev/null || true
-sleep 1
-
-# Start new MCP server in background
-python3 -m mcp_server.server > .mcp_server.log 2>&1 &
-MCP_PID=$!
-echo $MCP_PID > .mcp_server.pid
-sleep 2
-
-# Verify server started
-if kill -0 $MCP_PID 2>/dev/null; then
-    echo -e "${GREEN}✓ MCP server started (PID: $MCP_PID)${NC}"
-else
-    echo -e "${YELLOW}⚠️  Warning: MCP server may not have started${NC}"
-    echo "   Check .mcp_server.log for errors"
-fi
-
-# 10. Summary and next steps
+# 9. Summary and next steps
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}✅ Bootstrap complete!${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "Next steps:"
+echo "Your worktree is now ready for Task #$(basename $(pwd) | sed 's/Tasks-//'):"
 echo ""
-echo "1️⃣  MCP server is now running (PID in .mcp_server.pid)"
+echo "📋 Next steps:"
 echo ""
-echo "2️⃣  Close this terminal (or just VS Code window)"
-echo ""
-echo "3️⃣  Reopen this worktree: code -n ."
-echo "   (VS Code will reload with MCP server running in background)"
-echo ""
-echo "4️⃣  Verify MCP tools are available in Copilot:"
-echo "   - Open Copilot Chat (@mention or Cmd+Shift+L)"
-echo "   - Try: @tasks-mcp_list_tasks(profile='dev')"
-echo "   - Should show tasks from dev profile"
-echo ""
-echo "5️⃣  If MCP tools still not available:"
-echo "   - Check .mcp_server.log for errors"
-echo "   - Verify MCP extension is installed: anthropic.claude-dev"
-echo ""
-echo "6️⃣  Determine task ID from directory name:"
+echo "1️⃣  Determine task ID from directory name"
 echo "   Current: $(basename $(pwd))"
-echo "   Pattern: Tasks-{{id}} (e.g., Tasks-11)"
+echo "   Pattern: Tasks-{{id}}"
 echo ""
-echo "7️⃣  Retrieve and read your task prompt:"
-echo "   @tasks-mcp_get_attachment_content(task_id={{id}}, filename='TASK_{{id}}_PROMPT.md', profile='dev')"
+echo "2️⃣  Retrieve your task prompt"
+echo "   MCP method (if available):"
+echo "     @mcp_tasks-mcp_get_attachment_content(task_id={{id}}, filename='PROMPT', profile='dev')"
+echo ""
+echo "   CLI fallback (if MCP unavailable):"
+echo "     tasks --profile dev attach list {{id}}"
+echo "     tasks --profile dev attach get {{id}} TASK_{{id}}_PROMPT.md"
+echo ""
+echo "3️⃣  Read the prompt and follow all instructions"
+echo ""
+echo "4️⃣  Implement the feature according to the prompt"
+echo ""
+echo "5️⃣  Test thoroughly before committing"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-
-# 11. Provide diagnostic info
 echo "Diagnostic Information:"
 echo "  Worktree Root: $(pwd)"
 echo "  Main Project: $MAIN_TASKS"
 echo "  Task ID (inferred): $(basename $(pwd) | sed 's/Tasks-//')"
 echo "  Python: $(python3 --version 2>&1 || echo 'Not found')"
 echo "  Git Branch: $(git rev-parse --abbrev-ref HEAD)"
-echo "  MCP Server: PID $MCP_PID (see .mcp_server.log for errors)"
+echo "  Dev Profile: Available via 'tasks --profile dev' commands"
 echo ""
