@@ -119,6 +119,60 @@ After code review and quality gates pass:
 6. Remove worktree: `git worktree remove ../Tasks-N`
 7. Mark task complete: `tasks --profile dev update N --status done`
 
+**Post-Integration Summary** (Required for all feature branch integrations):
+Upon completing integration of a feature branch to main, provide a comprehensive summary for visibility:
+
+1. **Integration Status**:
+   - Feature branch merged ✓
+   - Tests passing ✓
+   - Version bumped ✓
+   - Package installed ✓
+   - Worktree cleaned ✓
+
+2. **What Was Completed**:
+   - List the 3-5 key features/changes delivered
+   - Include test coverage numbers
+   - Note breaking changes (if any)
+
+3. **Pending Work** (If any):
+   - List blocked or incomplete items within this task
+   - Explain why (e.g., "Awaiting dependency from Task #60")
+   - Link to related tasks
+
+4. **Recommendations for Next Work** (Priority-ordered):
+   - Identify 2-3 high-priority tasks that:
+     - Unblock other features
+     - Improve development workflow
+     - Are ready to start immediately
+   - Include brief rationale (e.g., "Unblocks attachment retrieval," "Critical for agent coordination")
+   - Reference task IDs
+
+**Example Summary**:
+```
+## Task #59 Integration Complete ✅
+
+Feature: Attachment Filename Indexing
+
+**Completed**:
+- Dual-filename indexing (original + storage)
+- Priority-based pattern matching
+- 9 tests passing (100%)
+- v0.8.0 released
+
+**Pending**: None - feature fully complete
+
+**Next High-Priority Work**:
+1. Task #61 (Status Indicators): Enables agent coordination - START NOW
+2. Task #57 (Content Retrieval): Improves agent workflows - Ready to start
+3. Task #50 (MCP Attachment): Adds programmatic workflow - Lower priority
+```
+
+This practice ensures:
+- Visibility into what's done and what remains
+- Clear direction for next work (no guessing what to do)
+- Documentation of dependencies
+- Easier onboarding for new agents or humans reviewing progress
+
 ### Background Agent Workflow (Future)
 
 **Current Status**: Organization does not permit GitHub Copilot CLI for Background Agents.
@@ -138,6 +192,7 @@ else
     echo "Using manual worktree workflow"
 fi
 ```
+
 
 ---
 
