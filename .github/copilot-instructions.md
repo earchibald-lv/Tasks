@@ -19,7 +19,7 @@
 
 ### Standard Process
 
-1. **Task Creation**: Create task via `tasks-mcp` (dev profile preferred for development work)
+1. **Task Creation**: Create task via `tasks-mcp` (dev profile is the queue for development work)
 2. **Prompt File**: Create detailed prompt instruction file describing the feature
 3. **Worktree Setup**: Create feature branch and worktree
 4. **VS Code Isolation**: Launch new window with `code -n {{worktree-path}}`
@@ -47,7 +47,7 @@ code -n /path/to/Tasks-N
 
 **Naming Convention**:
 - Directory: `Tasks-{{task-id}}` (e.g., `Tasks-52`)
-- Branch: `feature/{{descriptive-name}}` (e.g., `feature/enhanced-cli-help`)
+- Branch: `feature/N-{{descriptive-name}}` (e.g., `feature/52-enhanced-cli-help`)
 
 ### Background Agent Workflow (Future)
 
@@ -56,6 +56,17 @@ code -n /path/to/Tasks-N
 **Workaround**: Local Agent creates prompt file → commit → create worktree → launch new VS Code window.
 
 **Future State**: When Copilot CLI is approved, Background Agents will handle worktree creation and feature implementation autonomously.
+
+**Detecting Copilot CLI**:
+```bash
+if command -v copilot &> /dev/null && copilot -p /model | grep -q "can use Background Agent"; then
+    # Background Agent workflow available
+    echo "Using Background Agent for autonomous feature development"
+else
+    # Fallback to manual worktree workflow
+    echo "Using manual worktree workflow"
+fi
+```
 
 ---
 
@@ -169,7 +180,7 @@ pre-commit run --all-files
    - Dependency removals
 
 2. **Production Deployments**:
-   - Publishing to PyPI
+   <!-- - Publishing to PyPI -->
    - Updating live MCP servers
    - Modifying production configurations
 
