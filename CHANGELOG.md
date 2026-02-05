@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-02-04
+
+### Added
+
+- **Profile Management CLI Commands** (#58):
+  - New `tasks profile list` command shows all profiles with metadata (size, task count, modified date)
+  - `tasks profile list --json` outputs structured data for scripting
+  - `tasks profile list --configured-only` shows only configured profiles
+  - `tasks profile audit <name>` displays detailed profile information before deletion
+  - `tasks profile delete <name>` safely deletes profiles with explicit "yes" confirmation
+  - CLI-only deletion (no MCP tool) per governance: safety over speed
+  - Built-in profile protection: default, dev, test profiles cannot be deleted
+  - Service layer methods: `list_profiles()`, `audit_profile()`, `delete_profile()`
+  - Comprehensive test suite (16 tests covering all scenarios and edge cases)
+
 ## [0.6.0] - 2026-02-04
 
 ### Added
