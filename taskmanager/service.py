@@ -453,6 +453,40 @@ class TaskService:
 
         return path
 
+    def get_attachment_content(self, task_id: int, filename: str) -> bytes | None:
+        """Retrieve attachment file content.
+
+        Args:
+            task_id: ID of the task
+            filename: Name of the attachment file (can be exact or partial match)
+
+        Returns:
+            File content as bytes, or None if not found
+
+        Raises:
+            ValueError: If task not found
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        # Get attachment directory
+        task_dir = self.attachment_manager.get_task_dir(task_id)
+
+        if not task_dir.exists():
+            return None
+
+        # Try exact filename first
+        file_path = task_dir / filename
+        if file_path.exists() and file_path.is_file():
+            return file_path.read_bytes()
+
+        # If not found, search by partial match (for stored filenames like 20260204_181256_ORIGINAL_NAME.md)
+        for existing_file in task_dir.iterdir():
+            if filename in existing_file.name or existing_file.name.endswith(filename):
+                return existing_file.read_bytes()
+
+        return None
+
     def get_all_used_tags(self) -> list[str]:
         """Get all unique tags currently used across all tasks.
 

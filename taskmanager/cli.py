@@ -772,6 +772,45 @@ def cmd_attach_open(args):
         sys.exit(1)
 
 
+def cmd_attach_get(args):
+    """Retrieve and display attachment content."""
+    try:
+        service = get_service()
+        
+        # Get attachment content
+        content = service.get_attachment_content(args.task_id, args.filename)
+        
+        if content is None:
+            print(f"Attachment '{args.filename}' not found for task #{args.task_id}", file=sys.stderr)
+            sys.exit(1)
+        
+        # Output based on format
+        if args.format == "raw":
+            # Raw bytes to stdout
+            sys.stdout.buffer.write(content)
+        elif args.format == "json":
+            # JSON-encoded content
+            output_dict = {
+                "task_id": args.task_id,
+                "filename": args.filename,
+                "content": content.decode('utf-8', errors='replace'),
+                "size": len(content)
+            }
+            print(json.dumps(output_dict, indent=2))
+        else:  # text format (default)
+            # Decoded text with optional syntax highlighting
+            try:
+                text = content.decode('utf-8')
+                print(text)
+            except UnicodeDecodeError:
+                print(f"Warning: Could not decode as UTF-8, showing as raw bytes", file=sys.stderr)
+                sys.stdout.buffer.write(content)
+                
+    except Exception as e:
+        print(f"Error retrieving attachment: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
 # Workspace sub-commands
 def cmd_workspace_create(args):
     """Create a persistent workspace for a task."""
@@ -1510,6 +1549,17 @@ def main():
     attach_open.add_argument('task_id', type=int, help='Task ID')
     attach_open.add_argument('filename', help='Filename of attachment to open')
     attach_open.set_defaults(func=cmd_attach_open)
+    
+    attach_get = attach_subparsers.add_parser('get', help='Retrieve attachment file content')
+    attach_get.add_argument('task_id', type=int, help='Task ID')
+    attach_get.add_argument('filename', help='Attachment filename')
+    attach_get.add_argument(
+        '-f', '--format',
+        choices=['raw', 'text', 'json'],
+        default='text',
+        help='Output format (default: text)'
+    )
+    attach_get.set_defaults(func=cmd_attach_get)
     
     # Workspace sub-commands
     workspace_parser = subparsers.add_parser('workspace', help='Manage task workspaces')

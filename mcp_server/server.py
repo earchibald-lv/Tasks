@@ -667,6 +667,53 @@ def delete_task(
 
 
 # ============================================================================
+# Attachment Tools
+# ============================================================================
+
+
+@mcp.tool()
+def get_attachment_content(
+    task_id: int,
+    filename: str,
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
+    """Retrieve attachment file content for a task.
+
+    Fetches the content of a file attached to a task. Useful for reading
+    prompt files, documents, and other attachments directly within your
+    agent workflow.
+
+    Args:
+        task_id: ID of the task containing the attachment
+        filename: Name of the attachment file (can be partial match for
+                 stored filenames like '20260204_181256_ORIGINAL_NAME.md')
+        profile: Database profile to use (default, dev, test)
+
+    Returns:
+        File content as string (UTF-8 decoded, or raw bytes info if non-text)
+    """
+    try:
+        service = get_service(profile)
+
+        content = service.get_attachment_content(task_id, filename)
+
+        if content is None:
+            return f"❌ Attachment '{filename}' not found for task #{task_id}"
+
+        # Try to decode as text for display
+        try:
+            text_content = content.decode('utf-8')
+            return text_content
+        except UnicodeDecodeError:
+            return f"❌ Could not decode attachment as UTF-8. File appears to be binary ({len(content)} bytes)"
+
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
+# ============================================================================
 # Workspace Management Tools
 # ============================================================================
 
