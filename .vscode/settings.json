@@ -6,5 +6,26 @@
         },
         "pytest": true,
         "alembic upgrade": true
+    },
+    "mcp": {
+        "servers": {
+            "tasks-mcp": {
+                "command": "python",
+                "args": ["-m", "mcp_server.server"],
+                "env": {
+                    "PYTHONPATH": "${workspaceFolder}"
+                }
+            }
+        }
+    },
+    "[python]": {
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "python.linting.enabled": true,
+    "python.linting.ruffEnabled": true,
+    "[markdown]": {
+        "editor.formatOnSave": false,
+        "editor.wordWrap": "on"
     }
 }
