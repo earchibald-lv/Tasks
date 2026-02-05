@@ -9,7 +9,6 @@ Also provides configuration generation for ephemeral Claude sessions.
 
 import subprocess
 import json
-import os
 import shutil
 from pathlib import Path
 from typing import List, Dict, Any
@@ -194,7 +193,7 @@ def get_mcp_servers_config() -> Dict[str, Any]:
     return servers
 
 
-def create_ephemeral_session_dir(system_prompt: str, working_dir: str = None) -> tuple[Path, Dict[str, str]]:
+def create_ephemeral_session_dir(system_prompt: str, working_dir: str | None = None) -> tuple[Path, Dict[str, str]]:
     """Create an ephemeral Claude session directory with configuration.
     
     This creates a unique temporary directory with:

@@ -202,7 +202,8 @@ Thumbs.db
 
         try:
             with open(metadata_path, "r") as f:
-                return json.load(f)
+                metadata = json.load(f)
+            return metadata
         except (json.JSONDecodeError, OSError):
             return None
 

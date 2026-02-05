@@ -5,7 +5,7 @@ to AI agents through tools with User Elicitation for interactive forms.
 """
 
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -56,7 +56,7 @@ def get_service(profile: str = None) -> TaskService:
 
 def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
     """Convert MCP-friendly status string to TaskStatus enum.
-    
+
     MCP tools use simplified terminology for standard workflow states:
     - "todo" → PENDING
     - "in_progress" → IN_PROGRESS  

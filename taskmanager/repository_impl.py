@@ -98,7 +98,8 @@ class SQLTaskRepository:
 
         if tag is not None:
             # Filter tasks that contain the tag (supports comma-separated tags)
-            statement = statement.where(Task.tags.like(f"%{tag}%"))  # type: ignore[attr-defined]
+            if Task.tags is not None:
+                statement = statement.where(Task.tags.like(f"%{tag}%"))  # type: ignore[union-attr]
 
         # Apply ordering (most recent first)
         statement = statement.order_by(Task.created_at.desc())  # type: ignore[attr-defined]
@@ -202,7 +203,7 @@ class SQLTaskRepository:
         Returns:
             list[str]: Sorted list of unique tags.
         """
-        statement = select(Task.tags).where(Task.tags.is_not(None))
+        statement = select(Task.tags).where(Task.tags.is_not(None))  # type: ignore[union-attr]
         results = self.session.exec(statement).all()
         
         # Parse comma-separated tags and collect unique ones

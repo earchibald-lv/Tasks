@@ -107,7 +107,7 @@ def resolve_config_value(value: str | None) -> str | None:
     Returns:
         str | None: The resolved value, or the original if not a reference
     """
-    if is_onepassword_reference(value):
+    if value and is_onepassword_reference(value):
         return resolve_onepassword_reference(value)
     return value
 

@@ -5,9 +5,20 @@ layer (CLI, MCP) and the repository layer, implementing core business
 logic and validation rules.
 """
 
+import sys
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
+
+try:
+    import tomli_w
+except ImportError:
+    tomli_w = None
 
 from sqlmodel import Session
 
@@ -17,6 +28,7 @@ from taskmanager.attachments import (
     parse_attachments,
     serialize_attachments,
 )
+from taskmanager.config import Settings, get_settings
 from taskmanager.models import Priority, Task, TaskStatus, Attachment
 from taskmanager.repository import TaskRepository
 from taskmanager.workspace import WorkspaceManager, WorkspaceMetadata
@@ -598,8 +610,8 @@ class TaskService:
         if not self.session:
             raise ValueError("Database session not available for attachment operations")
         
-        # Verify task exists
-        task = self.get_task(task_id)
+        # Verify task exists (for validation)
+        self.get_task(task_id)
         
         # Generate storage filename with timestamp prefix
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -643,8 +655,8 @@ class TaskService:
         if not self.session:
             return None
         
-        # Verify task exists
-        task = self.get_task(task_id)
+        # Verify task exists (for validation)
+        self.get_task(task_id)
         
         # Query for attachments of this task
         query = self.session.query(Attachment).filter(
@@ -696,8 +708,8 @@ class TaskService:
         if not self.session:
             return []
         
-        # Verify task exists
-        task = self.get_task(task_id)
+        # Verify task exists (for validation)
+        self.get_task(task_id)
         
         attachments = self.session.query(Attachment).filter(
             Attachment.task_id == task_id

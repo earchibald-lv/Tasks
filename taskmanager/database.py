@@ -78,7 +78,7 @@ def init_db(profile: str = "default") -> None:
         alembic_cfg = AlembicConfig(alembic_ini)
         alembic_cfg.set_main_option('script_location', migrations_dir)
         # Disable Alembic's default logging setup
-        alembic_cfg.set_section_hook = None
+        # Note: set_section_hook is not a valid AlembicConfig attribute
 
         # Get the database URL for this profile
         settings = create_settings_for_profile(profile)
