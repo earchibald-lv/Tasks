@@ -4,6 +4,31 @@
 
 ---
 
+## ⚠️ CRITICAL: Worktree Location Requirement
+
+**The worktree directory MUST be at the parent directory level, NOT nested inside the main Tasks project**:
+
+```
+CORRECT Structure:
+/Users/Eugene.Archibald/Documents/
+├── Tasks/                    # Main project (Tasks)
+└── Tasks-1/                  # Worktree (at parent level)
+    
+WRONG Structure (DO NOT CREATE):
+/Users/Eugene.Archibald/Documents/Tasks/
+├── Tasks-1/                  # ❌ NESTED - WRONG!
+```
+
+When creating a worktree, use:
+```bash
+cd /Users/Eugene.Archibald/Documents
+git -C Tasks worktree add ../Tasks-{{N}} -b feature/name
+```
+
+The `../Tasks-{{N}}` path ensures the worktree is created at the PARENT directory level.
+
+---
+
 ## Automatic Task Discovery
 
 When you are launched in a worktree, follow this **mandatory bootstrap sequence** before beginning implementation:
@@ -13,7 +38,7 @@ When you are launched in a worktree, follow this **mandatory bootstrap sequence*
 **Verify you are in a Tasks-N worktree**:
 - Your current working directory is: `${PWD}`
 - The worktree directory MUST be named: `Tasks-{{numeric-id}}` (e.g., `Tasks-55`, `Tasks-58`, `Tasks-60`)
-- This is NOT the main Tasks project folder—you must be in an isolated worktree
+- The worktree MUST be at the parent directory level (not nested in /Tasks/)
 
 **Extract task ID from the worktree directory name**:
 ```python

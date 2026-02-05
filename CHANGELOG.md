@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-02-04
+
+### Changed
+
+- **Enhanced Agent Guidance for Worktree Setup** (#1):
+  - Added critical warning section to AGENT_GUIDANCE.md explaining worktree location requirement
+  - Clarified that worktrees MUST be created at parent directory level (not nested in main project)
+  - Provided visual directory structure examples (correct vs. incorrect)
+  - Documented the correct git command: `git worktree add ../Tasks-{{N}}` with emphasis on `../` path
+  - Result: Prevents agent confusion during worktree bootstrap sequence
+
 ## [0.8.2] - 2026-02-04
 
 ### Fixed
