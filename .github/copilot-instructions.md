@@ -36,13 +36,15 @@
 2. Create detailed prompt file locally describing the feature requirements, acceptance criteria, and implementation guidance
 3. Attach to the task using `tasks attach add {{task-id}} {{prompt-file}}`
 4. Name convention: `TASK_PROMPT.md` or `FEATURE_DESIGN.md`
-5. When worktree agent retrieves the task, the prompt attachment is available for reading
+5. Delete local copy: `rm {{prompt-file}}` after successful attachment (file is now stored in task database)
+6. When worktree agent retrieves the task, the prompt attachment is available for reading
 
 **Benefits**:
 - Repository stays clean (no worktree cruft)
 - Prompts versioned with task metadata
 - Easier to iterate: update attachment, agent re-reads latest prompt
 - Task system becomes single source of truth for agent instructions
+- Local copies cleaned up immediately after attachment
 
 ### Worktree-Based Development
 
