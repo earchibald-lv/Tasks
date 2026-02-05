@@ -5,6 +5,7 @@ layer (CLI, MCP) and the repository layer, implementing core business
 logic and validation rules.
 """
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
@@ -67,7 +68,7 @@ class TaskService:
         self.session = session
         self.attachment_manager = AttachmentManager()
         self.workspace_manager = WorkspaceManager()
-        self._config = config
+        self._config = None
 
     @property
     def config(self) -> "Settings":
