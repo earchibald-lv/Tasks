@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `tasks_attach_get_content` MCP tool for programmatic access
   - Enables agents to retrieve attached prompts and documents directly
 
+- **Custom Profile Support** (#53):
+  - Removed hardcoded profile validation to allow arbitrary custom profile names
+  - Support for profile-specific database paths via `ProfileModifier.database_url`
+  - Automatic fallback database generation for unconfigured custom profiles
+  - Profile name validation: alphanumeric characters, hyphens, and underscores allowed
+  - Examples: `client-a`, `my-project`, `project-2024`, etc.
+
 ### Changed
 
 - **Governance & Integration Documentation**:
@@ -24,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Documented version bumping as required step before merge to main
   - Added temporary file location requirements for agent efficiency
   - Clarified agent workflow for attachment-based task prompts
+  - Added `tasks_attach_get_content` tool to tasks-mcp reference
 
 ## [0.5.0] - 2026-02-04
 

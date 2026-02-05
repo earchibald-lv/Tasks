@@ -363,10 +363,46 @@ Tasks-N/                        # Feature worktrees (isolated)
 - **default**: Production use, stable database (`~/.config/taskmanager/tasks.db`)
 - **dev**: Development tasks, isolated database (`~/.config/taskmanager/tasks-dev.db`)
 - **test**: Testing, in-memory database (ephemeral)
+- **Custom**: User-defined profiles with custom database paths and configurations
+
+### Custom Profiles
+
+Users can define custom profiles for different projects, clients, or contexts. Define custom profiles in `~/.config/taskmanager/settings.toml`:
+
+```toml
+[profiles.client-a]
+database_url = "sqlite:///{config}/taskmanager/tasks-client-a.db"
+
+[profiles.personal]
+database_url = "sqlite:///{config}/taskmanager/tasks-personal.db"
+
+[profiles.project-2024]
+database_url = "sqlite:///{config}/taskmanager/tasks-project-2024.db"
+```
+
+Then use:
+```bash
+tasks --profile client-a list
+tasks --profile personal add "My personal task"
+tasks --profile project-2024 update 123 --status done
+```
+
+**Profile Name Rules**:
+- Must contain alphanumeric characters, hyphens (-), or underscores (_)
+- Examples: `client-a`, `my-project`, `client_1`, `project-2024`
+- Invalid: `client@abc`, `my.project`, `project!2024` (special characters not allowed)
+
+**Automatic Fallback**:
+If a custom profile is not defined in config, the system automatically creates a database at:
+```
+~/.config/taskmanager/tasks-{profile}.db
+```
+
+This means you can use custom profiles without pre-configuring them in settings.toml.
 
 ### Profile Selection
 
-**CLI**: `tasks --profile dev ...`  
+**CLI**: `tasks --profile dev ...` or `tasks --profile client-a ...`  
 **MCP Tools**: `profile` parameter (defaults to `default`)
 
 **Development Guideline**: Use `dev` profile for all project development tasks.
