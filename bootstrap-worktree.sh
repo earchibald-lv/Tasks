@@ -54,12 +54,27 @@ fi
 # 3. Find main Tasks project
 echo ""
 echo "3️⃣  Locating main Tasks project..."
-WORKTREE_ROOT=$(git rev-parse --show-toplevel)
-MAIN_TASKS="$WORKTREE_ROOT"
+WORKTREE_ROOT=$(pwd)
+# For worktrees, the main project is typically the parent directory's git folder
+# We can find it by checking .git file (worktrees have .git as a file, not a directory)
+if [[ -f ".git" ]]; then
+    # This is a worktree - .git is a file pointing to the main .git
+    MAIN_TASKS_GIT=$(cat .git | grep "gitdir:" | sed 's/gitdir: //' | sed "s|common||")
+    MAIN_TASKS=$(dirname $(dirname "$MAIN_TASKS_GIT"))
+else
+    # Not a worktree, assume current is main project
+    MAIN_TASKS="$WORKTREE_ROOT"
+fi
 
-if [[ ! -d "$MAIN_TASKS/.git" ]]; then
+if [[ ! -d "$MAIN_TASKS" ]]; then
+    # Fallback: try parent directory
+    MAIN_TASKS=$(dirname "$WORKTREE_ROOT")
+fi
+
+if [[ ! -d "$MAIN_TASKS/.git" && ! -f "$MAIN_TASKS/.git" ]]; then
     echo -e "${RED}❌ Cannot find main Tasks project${NC}"
-    echo "   Worktree must be in same repository structure"
+    echo "   Expected at: $MAIN_TASKS"
+    echo "   Current worktree: $WORKTREE_ROOT"
     exit 1
 fi
 echo -e "${GREEN}✓ Main project found at: $MAIN_TASKS${NC}"
