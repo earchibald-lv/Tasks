@@ -55,26 +55,27 @@ fi
 echo ""
 echo "3️⃣  Locating main Tasks project..."
 WORKTREE_ROOT=$(pwd)
-# For worktrees, the main project is typically the parent directory's git folder
-# We can find it by checking .git file (worktrees have .git as a file, not a directory)
+
+# For worktrees, .git is a file that points to the actual git directory
+# Parse it to find the main project
 if [[ -f ".git" ]]; then
-    # This is a worktree - .git is a file pointing to the main .git
-    MAIN_TASKS_GIT=$(cat .git | grep "gitdir:" | sed 's/gitdir: //' | sed "s|common||")
-    MAIN_TASKS=$(dirname $(dirname "$MAIN_TASKS_GIT"))
+    # Extract gitdir from .git file (e.g., "gitdir: /path/to/Tasks/.git/worktrees/Tasks-test")
+    GITDIR_PATH=$(cat .git | grep "gitdir:" | sed 's/gitdir: //' | xargs)
+    # Navigate up to find the main .git directory
+    # Pattern: Tasks/.git/worktrees/Tasks-test -> Tasks
+    MAIN_TASKS=$(echo "$GITDIR_PATH" | sed 's|/.git/worktrees/.*||')
 else
-    # Not a worktree, assume current is main project
+    # Not a worktree, assume current is main
     MAIN_TASKS="$WORKTREE_ROOT"
 fi
 
-if [[ ! -d "$MAIN_TASKS" ]]; then
-    # Fallback: try parent directory
-    MAIN_TASKS=$(dirname "$WORKTREE_ROOT")
-fi
-
-if [[ ! -d "$MAIN_TASKS/.git" && ! -f "$MAIN_TASKS/.git" ]]; then
+# Verify main project exists
+if [[ ! -d "$MAIN_TASKS/.git" ]]; then
     echo -e "${RED}❌ Cannot find main Tasks project${NC}"
-    echo "   Expected at: $MAIN_TASKS"
-    echo "   Current worktree: $WORKTREE_ROOT"
+    echo "   Parsed: $MAIN_TASKS"
+    echo "   Worktree: $WORKTREE_ROOT"
+    echo "   .git content:"
+    cat .git 2>/dev/null || echo "   (no .git file)"
     exit 1
 fi
 echo -e "${GREEN}✓ Main project found at: $MAIN_TASKS${NC}"
