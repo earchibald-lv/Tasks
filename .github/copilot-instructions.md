@@ -150,6 +150,16 @@ If tasks-mcp cannot accomplish something the CLI can:
 3. **Proceed**: Use `tasks` CLI to unblock current work
 4. **Tag**: Add tag `mcp-gap` to the defect task
 
+### MCP/CLI Feature Parity Exceptions
+
+**Destructive Operations**: Some CLI features intentionally do NOT have MCP equivalents for safety:
+- **Profile deletion** (`tasks profile delete <name>`): Only available via CLI
+  - Rationale: Prevents accidental database deletion via LLM agents
+  - Risk: Agents could misinterpret task requirements and delete production profiles
+  - Mitigation: CLI requires user confirmation; forces explicit manual deletion
+  
+When designing new destructive features, default to CLI-only with explicit confirmation prompts.
+
 ---
 
 ## Code Quality Standards
