@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Custom Profile Support** (#53):
+  - Removed hardcoded profile validation to allow arbitrary custom profile names
+  - Support for profile-specific database paths via `ProfileModifier.database_url`
+  - Automatic fallback database generation for unconfigured custom profiles
+  - Profile name validation: alphanumeric characters, hyphens, and underscores allowed
+  - Examples: `client-a`, `my-project`, `project-2024`, etc.
+
 ## [0.5.0] - 2026-02-04
 
 ### Added

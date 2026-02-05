@@ -13,7 +13,6 @@ import os
 import subprocess
 import sys
 import tomllib  # Python 3.11+ standard library
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -240,10 +239,14 @@ class ProfileModifier(BaseModel):
     """Profile-level customizations for MCP servers and prompts.
     
     Allows per-profile configuration including:
+    - Custom database path
     - MCP server command/args/env overrides
     - Custom system prompt additions
     
     Example:
+        [profiles.client-a]
+        database_url = "sqlite:///{data}/tasks-client-a.db"
+        
         [profiles.dev]
         prompt_additions = "You are in DEV mode. Extra caution required."
         
@@ -251,6 +254,10 @@ class ProfileModifier(BaseModel):
         env = { "JIRA_URL" = "op://private/dev/jira/url" }
     """
 
+    database_url: str | None = Field(
+        default=None,
+        description="Custom database URL for this profile"
+    )
     mcp_servers: dict[str, McpServerModifier] = Field(
         default_factory=dict,
         description="Per-server MCP overrides"
@@ -272,6 +279,7 @@ class ProfileModifier(BaseModel):
         }
         
         return ProfileModifier(
+            database_url=self.database_url,
             mcp_servers=resolved_servers,
             prompt_additions=self.prompt_additions,
         )
@@ -323,17 +331,21 @@ class Settings(BaseSettings):
     @field_validator("profile")
     @classmethod
     def validate_profile(cls, v: str) -> str:
-        """Validate profile name."""
-        valid_profiles = {"default", "dev", "test"}
-        if v not in valid_profiles:
-            raise ValueError(f"Invalid profile '{v}'. Must be one of: {valid_profiles}")
+        """Validate profile name format.
+        
+        Allows alphanumeric characters, hyphens, and underscores.
+        Built-in profiles (default, dev, test) are always valid.
+        Custom profiles can be defined in settings.
+        """
+        # Validate format: alphanumeric, hyphens, underscores
+        if not v or not all(c.isalnum() or c in '-_' for c in v):
+            raise ValueError(f"Invalid profile '{v}'. Use alphanumeric, hyphens, or underscores.")
         return v
 
     @field_validator("timezone")
     @classmethod
     def validate_timezone(cls, v: str) -> str:
         """Validate timezone name."""
-        from zoneinfo import ZoneInfo
         try:
             ZoneInfo(v)  # Try to create a ZoneInfo to validate
             return v
@@ -383,6 +395,11 @@ class Settings(BaseSettings):
 
     def get_database_url(self) -> str:
         """Get the database URL for the active profile.
+        
+        Supports:
+        - Built-in profiles (default, dev, test) with standard paths
+        - Custom profiles with configured database_url
+        - Fallback to auto-generated path for unconfigured custom profiles
 
         Returns:
             str: SQLite database URL
@@ -396,15 +413,29 @@ class Settings(BaseSettings):
         if self.database_url:
             return self.expand_path_tokens(self.database_url)
 
-        # Get URL from active profile
-        profile_urls = {
+        # Built-in profile URLs
+        builtin_urls = {
             "default": self.database.profiles.default,
             "dev": self.database.profiles.dev,
             "test": self.database.profiles.test,
         }
 
-        url = profile_urls.get(self.profile, self.database.profiles.default)
-        return self.expand_path_tokens(url)
+        # Check built-in profiles first
+        if self.profile in builtin_urls:
+            url = builtin_urls[self.profile]
+            return self.expand_path_tokens(url)
+
+        # Custom profile - check for configured database_url
+        custom_modifier = self.profiles.get(self.profile)
+        if custom_modifier and custom_modifier.database_url:
+            url = custom_modifier.database_url
+            return self.expand_path_tokens(url)
+
+        # Fallback: auto-generate path for custom profiles
+        # Format: sqlite:///{data}/tasks-{profile}.db
+        config_dir = self.get_config_dir()
+        fallback_url = f"sqlite:///{config_dir}/taskmanager/tasks-{self.profile}.db"
+        return fallback_url
 
     def set_override(self, key: str, value: Any) -> None:
         """Set a runtime override (from CLI flags).
