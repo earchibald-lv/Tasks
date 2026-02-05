@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-02-04
+
+### Added
+
+- **Task Attachments from Stdin and MCP Payload** (#60):
+  - CLI `tasks attach add` now accepts stdin input with `--filename` flag
+  - Enables piping generated content: `generate-prompt.py | tasks attach add 60 -f TASK_60_PROMPT.md`
+  - New MCP tool `tasks_attach_add_content` for programmatic attachment creation
+  - Service layer method `add_attachment_from_content()` supports bytes and string input
+  - Agents can self-generate and attach prompts without filesystem writes
+  - Comprehensive test coverage (19 tests for stdin scenarios)
+
+- **Delegate Bootstrap Prompt Documentation** (#58):
+  - New `.github/prompts/delegate-bootstrap.prompt.md` with detailed bootstrap instructions
+  - Documents how agents determine task ID from worktree directory and retrieve prompts
+
 ## [0.5.2] - 2026-02-04
 
 ### Added
