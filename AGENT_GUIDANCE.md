@@ -1,53 +1,130 @@
-# Task #45: Profile Modifiers - Agent Implementation Guidance
+# Delegate Agent Bootstrap Instructions
 
-## Overview
+**Purpose**: These instructions enable delegate agents to automatically discover, retrieve, and execute task-specific implementation guidance.
 
-You are working on **Task #45: Feature: Allow the creation of profile modifiers**
+---
 
-This task adds profile-specific MCP server and prompt customization to the task management system, allowing different configurations (MCP servers, environment variables, prompts) for the `default`, `dev`, and `test` profiles.
+## Automatic Task Discovery
 
-## Current State
+When you are launched in a worktree, follow this **mandatory bootstrap sequence** before beginning implementation:
 
-- Worktree: `/Users/Eugene.Archibald/Documents/Tasks-45`
-- Branch: `feature/profile-modifiers`
-- Current commit: `529d583` (feat: dynamic profile resolution for MCP server)
-- Status: **Ready for implementation** - no partial work
+### Step 1: Determine Task ID from Working Directory
 
-## Task Requirements
+Your current working directory is: `{{PWD}}`
 
-From the task description in dev profile:
+**Extract task ID from the worktree directory name**:
+- Expected format: `Tasks-{{id}}` (e.g., `Tasks-55`, `Tasks-58`)
+- Extract the numeric ID from the directory name
 
-> Allow the configuration (including for default profile) of mappings for profile MCP servers and their associated env vars and secrets (supporting the same 1password preprocessing as currently), and custom prompt additions/modifications.
+```python
+import os
+import re
 
-### What This Means
+cwd = os.getcwd()
+match = re.search(r'Tasks-(\d+)', cwd)
+if match:
+    task_id = match.group(1)
+else:
+    raise RuntimeError(f"Cannot determine task ID from {cwd}. Expected Tasks-{{id}} format.")
+```
 
-1. **MCP Server Customization per Profile**
-   - Override MCP server command, arguments, and environment variables
-   - Support profile-specific JIRA/Confluence credentials
-   - Example: dev profile uses staging JIRA, production profile uses prod JIRA
+### Step 2: Retrieve the Attached Task Prompt
 
-2. **Secret Support**
-   - Reuse existing 1Password reference system (`op://path/to/secret`)
-   - Apply same preprocessing as current atlassian config
+**Use the MCP tool to read the attached prompt**:
 
-3. **Custom Prompts per Profile**
-   - Add profile-specific instructions to Claude's initial system prompt
-   - Example: dev profile prompts extra caution for JIRA modifications
+Use `mcp_tasks-mcp_get_attachment_content` with:
+- `task_id`: The numeric ID from Step 1
+- `filename`: Partial match for the attached prompt (typically contains "PROMPT" or "DESIGN")
 
-## Implementation Plan
+Example:
+```python
+# Use the MCP tool to retrieve the prompt
+response = mcp_tasks_mcp_get_attachment_content(
+    task_id=int(task_id),
+    filename="PROMPT"  # Partial match - will find 20260204_183302_TASK_57_PROMPT.md
+)
+prompt_content = response  # This is the full text of the attached prompt
+```
 
-### Phase 1: Configuration Classes (config.py)
+### Step 3: Execute the Prompt Instructions
 
-**Add two new Pydantic models:**
+**Parse and follow all instructions** in the retrieved prompt:
 
-1. **McpServerModifier** - Per-server customization
-   ```python
-   class McpServerModifier(BaseModel):
-       command: str | None = None      # Override server command
-       args: list[str] | None = None   # Override args
-       env: dict[str, str] | None = None  # Additional/override env vars (supports 1Password refs)
-       
-       def resolve_secrets(self) -> "McpServerModifier":
+1. Read the "Objective" section for what you're building
+2. Follow "Implementation Steps" in order
+3. Run tests as specified in "Testing Strategy"
+4. Verify all "Acceptance Criteria" are met
+5. Use "Notes" for context on why certain decisions were made
+
+---
+
+## Critical Success Factors
+
+### Always Follow These Principles
+
+1. **Complete bootstrap before implementation**: Don't start coding until you've retrieved the prompt.
+2. **Trust the attached prompt**: It contains the most current requirements and design decisions.
+3. **Update if prompt is unclear**: If the attached prompt doesn't make sense, raise the issue to the human—don't guess.
+4. **Test thoroughly**: Run all tests specified in the prompt before committing.
+5. **Follow commit guidelines**: Use conventional commit format with task ID: `feat(#N): description`
+
+### If Bootstrap Fails
+
+**If you cannot retrieve the prompt**:
+1. Check that you're in a worktree directory (format `Tasks-{{id}}`)
+2. Verify the task exists in the dev profile: `tasks --profile dev show {{id}}`
+3. List attachments: `tasks --profile dev attach list {{id}}`
+4. If no attachments exist, ask the human to attach the prompt file to the task
+
+**If the prompt file is corrupted or incomplete**:
+1. Save a copy: `tasks --profile dev attach get {{id}} {{filename}} > prompt_backup.txt`
+2. Report the issue to the human
+3. Wait for updated prompt attachment
+
+---
+
+## Example Bootstrap Execution
+
+For Task #58 (Profile Management CLI):
+
+```
+1. Working directory: /Users/Eugene.Archibald/Documents/Tasks-58
+2. Extract: task_id = "58"
+3. Retrieve: mcp_tasks_mcp_get_attachment_content(task_id=58, filename="PROMPT")
+4. Read: Retrieved 8.5KB prompt with 3 CLI commands, implementation steps, tests
+5. Execute: Follow the 4-step implementation guide in the prompt
+6. Test: Run pytest for all test cases
+7. Commit: git commit -m "feat(#58): implement profile management CLI commands"
+```
+
+---
+
+## Worktree Workflow Context
+
+This bootstrap process is part of the **Worktree-Based Development** workflow documented in `.github/copilot-instructions.md`:
+
+1. **Delegation**: Human creates task with detailed prompt attached
+2. **Setup**: Worktree created at `Tasks-{{id}}`, VS Code launched
+3. **Bootstrap** (YOU ARE HERE): Retrieve task prompt via this process
+4. **Implementation**: Follow prompt instructions in isolated environment
+5. **Integration**: Commit, merge, cleanup worktree per governance
+
+The attached prompt is the **single source of truth** for implementation. Trust it.
+
+---
+
+## Governance Notes
+
+- **Task Prompts**: Always attached to tasks via `tasks attach add`, never stored in repository
+- **Local Copies**: Delete any local copies after attachment (file is in task database)
+- **MCP Tool Reference**: Use `mcp_tasks-mcp_get_attachment_content` for retrieval—this is essential for delegation workflow
+- **Confirmation**: If you're uncertain, ask the human for clarification rather than guessing
+
+---
+
+**Version**: 0.5.2  
+**Last Updated**: 2026-02-04  
+**Audience**: Delegate AI agents (Claude, Copilot) implementing tasks in worktrees
            # Resolve 1Password references in env vars
    ```
 

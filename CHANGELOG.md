@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-02-04
+
+### Added
+
+- **Delegate Agent Bootstrap Instructions** (#58):
+  - AGENT_GUIDANCE.md now contains universal bootstrap sequence for task delegation
+  - Agents automatically extract task ID from worktree directory (Tasks-{{id}} format)
+  - Retrieve task prompt via `mcp_tasks-mcp_get_attachment_content` MCP tool
+  - Execute attached prompt instructions as single source of truth
+  - Improves consistency and eliminates per-task instruction duplication
+
 ## [0.5.1] - 2026-02-04
 
 ### Added
