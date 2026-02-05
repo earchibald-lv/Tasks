@@ -403,6 +403,40 @@ If a custom profile is not defined in config, the system automatically creates a
 
 This means you can use custom profiles without pre-configuring them in settings.toml.
 
+### Profile Maintenance & Cleanup
+
+**Audit Profile Databases**:
+List all existing profile databases:
+```bash
+ls -lah ~/.config/taskmanager/tasks*.db
+```
+
+**Check Profile Contents**:
+Before deleting, verify what tasks are in a profile:
+```bash
+tasks --profile {{profile-name}} list
+```
+
+**Delete Stale Profiles**:
+Remove accidentally created or stale profile databases:
+```bash
+rm ~/.config/taskmanager/tasks-{{profile-name}}.db
+```
+
+**Remove from Configuration** (if pre-configured):
+Edit `~/.config/taskmanager/settings.toml` and remove the profile section:
+```toml
+# Remove this entire section:
+[profiles.stale-profile]
+database_url = "sqlite:///{config}/taskmanager/tasks-stale-profile.db"
+```
+
+**Best Practice**:
+- Document active profiles in `settings.toml` for team/project clarity
+- Use naming conventions (e.g., `client-{{name}}`, `project-{{year}}`) to identify purpose
+- Audit quarterly: `ls -lah ~/.config/taskmanager/tasks*.db | tail -10` (most recent)
+- Delete both the database file AND any settings.toml entry to fully remove a profile
+
 ### Profile Selection
 
 **CLI**: `tasks --profile dev ...` or `tasks --profile client-a ...`  
