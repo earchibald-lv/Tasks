@@ -713,6 +713,61 @@ def get_attachment_content(
         return f"❌ Unexpected error: {str(e)}"
 
 
+@mcp.tool()
+def add_attachment_from_content(
+    task_id: int,
+    filename: str,
+    content: str,
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
+    """Add attachment to task with content payload.
+
+    Enables programmatic attachment creation for generated content
+    (e.g., dynamically-created prompts, reports, code samples).
+    Particularly useful in agent workflows where content is generated
+    and needs to be attached for retrieval by subsequent agents.
+
+    Args:
+        task_id: Task ID to attach to
+        filename: Attachment filename (e.g., 'TASK_60_PROMPT.md')
+        content: File content as string (will be UTF-8 encoded)
+        profile: Database profile to use (default, dev, test)
+
+    Returns:
+        Success message with attachment metadata (filename, size)
+
+    Example:
+        ```python
+        prompt_content = generate_task_prompt(task_id=60)
+        result = add_attachment_from_content(
+            task_id=60,
+            filename="TASK_60_PROMPT.md",
+            content=prompt_content,
+            profile="dev"
+        )
+        ```
+    """
+    try:
+        service = get_service(profile)
+
+        attachment = service.add_attachment_from_content(
+            task_id=task_id,
+            filename=filename,
+            content=content  # Service handles str->bytes conversion
+        )
+
+        return (
+            f"✅ Attached {attachment['original_name']} to task #{task_id}\n"
+            f"Stored as: {attachment['filename']}\n"
+            f"Size: {attachment['size']:,} bytes"
+        )
+
+    except ValueError as e:
+        return f"❌ Error: {str(e)}"
+    except Exception as e:
+        return f"❌ Unexpected error: {str(e)}"
+
+
 # ============================================================================
 # Workspace Management Tools
 # ============================================================================

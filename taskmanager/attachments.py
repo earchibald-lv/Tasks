@@ -108,6 +108,59 @@ class AttachmentManager:
         }
         
         return metadata
+
+    def add_attachment_from_content(
+        self,
+        task_id: int,
+        filename: str,
+        content: bytes
+    ) -> AttachmentMetadata:
+        """Add a file attachment to a task from content.
+        
+        Enables programmatic attachment creation from generated content,
+        stdin, or MCP payload.
+        
+        Args:
+            task_id: The task ID
+            filename: Attachment filename (e.g., 'TASK_60_PROMPT.md')
+            content: Binary content
+            
+        Returns:
+            Metadata for the added attachment
+            
+        Raises:
+            ValueError: If filename is invalid or content is empty
+        """
+        # Normalize filename (remove directory path if included)
+        filename = Path(filename).name
+        
+        if not filename or not filename.strip():
+            raise ValueError("Filename cannot be empty")
+        
+        if not content:
+            raise ValueError("Content cannot be empty")
+        
+        # Create task directory
+        task_dir = self.get_task_dir(task_id)
+        
+        # Generate unique filename to avoid conflicts
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        storage_filename = f"{timestamp}_{filename}"
+        dest_path = task_dir / storage_filename
+        
+        # Write the content
+        dest_path.write_bytes(content)
+        
+        # Create metadata
+        metadata: AttachmentMetadata = {
+            "filename": storage_filename,
+            "original_name": filename,
+            "size": len(content),
+            "added_at": datetime.now().isoformat(),
+            "mime_type": None
+        }
+        
+        return metadata
     
     def remove_attachment(self, task_id: int, filename: str) -> bool:
         """Remove a file attachment from a task.

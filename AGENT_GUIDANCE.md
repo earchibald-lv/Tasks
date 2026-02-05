@@ -10,23 +10,39 @@ When you are launched in a worktree, follow this **mandatory bootstrap sequence*
 
 ### Step 1: Determine Task ID from Working Directory
 
-Your current working directory is: `{{PWD}}`
+**Verify you are in a Tasks-N worktree**:
+- Your current working directory is: `${PWD}`
+- The worktree directory MUST be named: `Tasks-{{numeric-id}}` (e.g., `Tasks-55`, `Tasks-58`, `Tasks-60`)
+- This is NOT the main Tasks project folder—you must be in an isolated worktree
 
 **Extract task ID from the worktree directory name**:
-- Expected format: `Tasks-{{id}}` (e.g., `Tasks-55`, `Tasks-58`)
-- Extract the numeric ID from the directory name
-
 ```python
 import os
 import re
 
 cwd = os.getcwd()
-match = re.search(r'Tasks-(\d+)', cwd)
+dir_name = os.path.basename(cwd)
+
+# Check format: Tasks-{{number}}
+match = re.match(r'^Tasks-(\d+)$', dir_name)
 if match:
     task_id = match.group(1)
+    print(f"✓ Detected task ID: {task_id} from {dir_name}")
 else:
-    raise RuntimeError(f"Cannot determine task ID from {cwd}. Expected Tasks-{{id}} format.")
+    raise RuntimeError(
+        f"ERROR: Not in a Tasks-N worktree!\n"
+        f"  Current directory: {cwd}\n"
+        f"  Directory name: {dir_name}\n"
+        f"  Expected format: Tasks-{{numeric-id}} (e.g., Tasks-55, Tasks-60)\n"
+        f"  Solution: Create a worktree using:\n"
+        f"    git worktree add ../Tasks-{{N}} -b feature/description"
+    )
 ```
+
+**Common mistakes**:
+- ❌ Working in `/Tasks-60` (the main project) — You MUST be in an isolated worktree at a different path
+- ❌ Directory named `task-60` or `Task-60` — Must be exactly `Tasks-{{number}}`
+- ✅ Correct: `/path/to/Tasks-60/` where git worktree is set up
 
 ### Step 2: Retrieve the Attached Task Prompt
 
@@ -70,8 +86,14 @@ prompt_content = response  # This is the full text of the attached prompt
 
 ### If Bootstrap Fails
 
+**If you are NOT in a Tasks-N worktree**:
+- STOP. The bootstrap process only works in an isolated worktree.
+- Ask the human to create a worktree: `git worktree add ../Tasks-{{N}} -b feature/description`
+- Then launch VS Code in that worktree: `code -n /path/to/Tasks-{{N}}`
+- Return to Step 1 when you're in the correct directory.
+
 **If you cannot retrieve the prompt**:
-1. Check that you're in a worktree directory (format `Tasks-{{id}}`)
+1. Verify you're in a worktree (path should NOT be the main Tasks project)
 2. Verify the task exists in the dev profile: `tasks --profile dev show {{id}}`
 3. List attachments: `tasks --profile dev attach list {{id}}`
 4. If no attachments exist, ask the human to attach the prompt file to the task

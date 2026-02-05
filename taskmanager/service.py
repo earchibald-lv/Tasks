@@ -381,6 +381,58 @@ class TaskService:
 
         return metadata
 
+    def add_attachment_from_content(
+        self,
+        task_id: int,
+        filename: str,
+        content: bytes | str,
+    ) -> AttachmentMetadata:
+        """Add a file attachment to a task from content (bytes or string).
+
+        Enables programmatic attachment creation from generated content,
+        stdin, or MCP payload.
+
+        Args:
+            task_id: The task ID
+            filename: Attachment filename (e.g., 'TASK_60_PROMPT.md')
+            content: Binary or string content
+
+        Returns:
+            Metadata for the added attachment
+
+        Raises:
+            ValueError: If task not found, filename invalid, or content empty
+        """
+        # Verify task exists
+        task = self.get_task(task_id)
+
+        # Normalize filename
+        filename = Path(filename).name
+        if not filename or not filename.strip():
+            raise ValueError("Filename cannot be empty")
+
+        # Convert content to bytes if string
+        if isinstance(content, str):
+            content = content.encode('utf-8')
+
+        if not content:
+            raise ValueError("Content cannot be empty")
+
+        # Add the content via attachment manager
+        metadata = self.attachment_manager.add_attachment_from_content(
+            task_id, filename, content
+        )
+
+        # Update task's attachments metadata
+        attachments = parse_attachments(task.attachments)
+        attachments.append(metadata)
+        task.attachments = serialize_attachments(attachments)
+        task.mark_updated()
+
+        self.repository.update(task)
+
+        return metadata
+
     def remove_attachment(self, task_id: int, filename: str) -> bool:
         """Remove a file attachment from a task.
 

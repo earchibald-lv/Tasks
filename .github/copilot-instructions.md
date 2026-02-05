@@ -21,11 +21,12 @@
 
 1. **Task Creation**: Create task via `tasks-mcp` (dev profile is the queue for development work)
 2. **Agent Prompt**: Create detailed prompt instruction file and attach to the task
-3. **Worktree Setup**: Create feature branch and worktree
-4. **VS Code Isolation**: Launch new window with `code -n {{worktree-path}}`
-5. **Implementation**: Develop in isolated environment
-6. **Quality Gates**: Lint, security scan, test before merge
-7. **Merge & Cleanup**: Fast-forward merge to main, remove worktree
+3. **Worktree Setup**: Create feature branch and worktree at `../Tasks-{{id}}`
+4. **VS Code Isolation**: Launch new window with `code -n ../Tasks-{{id}}`
+5. **Bootstrap**: Agent reads task ID from worktree directory name and retrieves attached prompt via MCP
+6. **Implementation**: Develop in isolated environment following retrieved prompt instructions
+7. **Quality Gates**: Lint, security scan, test before merge
+8. **Merge & Cleanup**: Fast-forward merge to main, remove worktree
 
 ### Prompt File Attachment
 
@@ -54,24 +55,46 @@
 
 **Pattern**:
 ```bash
-# Create prompt file and attach to task #N (in main workspace)
-# File: TASK_PROMPT.md (local, temporary)
+# In main workspace (Tasks-60):
+# 1. Create prompt file and attach to task #N
 tasks --profile dev attach add N TASK_PROMPT.md
 
-# Create worktree for task #N
-git worktree add ../Tasks-N -b feature/descriptive-name
+# 2. Create worktree OUTSIDE the main workspace
+cd ..  # Go to parent of Tasks-60
+git worktree add Tasks-N -b feature/descriptive-name
 
-# Launch isolated VS Code window
-code -n /path/to/Tasks-N
+# 3. Launch isolated VS Code window in the worktree
+code -n Tasks-N
 
-# Agent reads task #N (with attached prompt) from database
-# Deletes TASK_PROMPT.md after task complete
+# In the worktree (Tasks-N):
+# 4. Bootstrap sequence runs automatically:
+#    - Detects task ID from directory name: Tasks-{{N}}
+#    - Retrieves attached prompt via MCP
+#    - Executes prompt instructions
 ```
 
 **Naming Convention**:
-- Directory: `Tasks-{{task-id}}` (e.g., `Tasks-55`)
-- Branch: `feature/{{descriptive-name}}` (e.g., `feature/task-attachment-prompts`)
-- Prompt: Attached to task as `.md` file, not in repository
+- **Worktree Directory**: `Tasks-{{task-id}}` (e.g., `Tasks-55`, `Tasks-60`) — MUST be at same level as main workspace, NOT nested
+- **Branch**: `feature/{{descriptive-name}}` (e.g., `feature/task-attachment-prompts`)
+- **Prompt**: Attached to task via `tasks attach add`, stored in task database (not in repository)
+
+**Correct Directory Structure**:
+```
+/parent-directory/
+├── Tasks-60/                 # Main workspace (Tasks project)
+│   ├── .git/
+│   ├── taskmanager/
+│   ├── AGENT_GUIDANCE.md
+│   └── ...
+├── Tasks-55/                 # Worktree for task #55
+│   ├── .git/
+│   ├── taskmanager/
+│   └── ...
+└── Tasks-60-feature-name/    # Worktree for task #60 (alternate naming)
+    ├── .git/
+    ├── taskmanager/
+    └── ...
+```
 
 **Committing Changes**:
 When work is complete in the worktree:

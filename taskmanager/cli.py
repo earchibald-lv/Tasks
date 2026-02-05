@@ -678,18 +678,52 @@ def cmd_config_edit(args):
 
 # Attachment sub-commands
 def cmd_attach_add(args):
-    """Attach a file to a task."""
+    """Attach a file to a task from file or stdin."""
     try:
         service = get_service()
-        file_path = Path(args.file_path)
+        task_id = args.task_id
+        file_arg = args.file_path
+        filename_arg = args.filename
         
-        if not file_path.is_file():
-            print(f"Error: Not a file: {file_path}", file=sys.stderr)
-            sys.exit(1)
+        # Determine source and filename
+        if file_arg:
+            # File input
+            file_path = Path(file_arg)
+            if not file_path.is_file():
+                print(f"Error: Not a file: {file_arg}", file=sys.stderr)
+                sys.exit(1)
+            
+            # Read file
+            with open(file_path, 'rb') as f:
+                content = f.read()
+            
+            # Use provided filename or extract from path
+            filename = filename_arg or file_path.name
+        else:
+            # Stdin input
+            if not filename_arg:
+                print("Error: --filename is required when reading from stdin", file=sys.stderr)
+                print("Usage: echo 'content' | tasks attach add TASK_ID --filename FILENAME.md", file=sys.stderr)
+                sys.exit(1)
+            
+            # Read from stdin (binary mode)
+            if hasattr(sys.stdin, 'buffer'):
+                # Python 3: binary mode available
+                content = sys.stdin.buffer.read()
+            else:
+                # Fallback: text mode
+                content = sys.stdin.read().encode('utf-8')
+            
+            filename = filename_arg
         
-        metadata = service.add_attachment(args.task_id, file_path)
+        # Add attachment
+        metadata = service.add_attachment_from_content(
+            task_id=task_id,
+            filename=filename,
+            content=content
+        )
         
-        print(f"✓ Attached file to task #{args.task_id}")
+        print(f"✓ Attached file to task #{task_id}")
         print(f"  Original name: {metadata['original_name']}")
         print(f"  Stored as: {metadata['filename']}")
         print(f"  Size: {metadata['size']:,} bytes")
@@ -1532,7 +1566,8 @@ def main():
     
     attach_add = attach_subparsers.add_parser('add', help='Attach a file to a task')
     attach_add.add_argument('task_id', type=int, help='Task ID to attach file to')
-    attach_add.add_argument('file_path', help='Path to file to attach')
+    attach_add.add_argument('file_path', nargs='?', help='Path to file to attach (optional, reads stdin if missing)')
+    attach_add.add_argument('-f', '--filename', help='Attachment filename (required when reading from stdin)')
     attach_add.set_defaults(func=cmd_attach_add)
     
     attach_list = attach_subparsers.add_parser('list', help='List all attachments for a task')
