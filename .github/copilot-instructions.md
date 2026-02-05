@@ -32,20 +32,30 @@
 
 **Purpose**: Agent instructions are attached to tasks, not stored in the repository.
 
-**Process**:
-1. Move task to in_progress status
-2. Create detailed prompt file locally describing the feature requirements, acceptance criteria, and implementation guidance
-3. Attach to the task using `tasks attach add {{task-id}} {{prompt-file}}`
-4. Name convention: `TASK_PROMPT.md` or `FEATURE_DESIGN.md`
-5. Delete local copy: `rm {{prompt-file}}` after successful attachment (file is now stored in task database)
-6. When worktree agent retrieves the task, the prompt attachment is available for reading
+**Process** (ALWAYS use MCP tool—CLI method is deprecated):
+1. Move task to in_progress status: `tasks --profile dev update {{task-id}} --status in_progress`
+2. Generate detailed prompt file describing feature requirements, acceptance criteria, implementation guidance
+3. **Use MCP tool to attach**: `mcp_tasks-mcp_add_attachment_from_content`
+   - Parameter: `task_id={{task-id}}`
+   - Parameter: `filename=TASK_{{task-id}}_PROMPT.md` (or similar)
+   - Parameter: `content={{full-prompt-content-as-string}}`
+   - Parameter: `profile=dev`
+4. MCP tool returns success with storage filename (e.g., `20260205_050917_TASK_11_PROMPT.md`)
+5. File is now in task database—no local copy cleanup needed
+6. When worktree agent bootstraps, prompt is retrieved via `mcp_tasks-mcp_get_attachment_content`
+
+**Why MCP tool over CLI**:
+- Agent-to-agent communication: Agents can programmatically attach content
+- No file system dependencies: Content stays in task database
+- Atomic operation: Attachment guaranteed when tool succeeds
+- Cleaner workflow: No `rm` step required
 
 **Benefits**:
 - Repository stays clean (no worktree cruft)
 - Prompts versioned with task metadata
-- Easier to iterate: update attachment, agent re-reads latest prompt
+- Easier to iterate: Update attachment via MCP, agent re-reads latest prompt
 - Task system becomes single source of truth for agent instructions
-- Local copies cleaned up immediately after attachment
+- Reliable for agent-to-agent delegation
 
 ### Worktree-Based Development
 
@@ -55,21 +65,30 @@
 
 **Pattern**:
 ```bash
-# In main workspace (Tasks-60):
-# 1. Create prompt file and attach to task #N
-tasks --profile dev attach add N TASK_PROMPT.md
+# In main workspace (Tasks):
+# 1. Create task in DEV profile
+tasks --profile dev add "Feature name" --priority high
+# Returns: ✓ Created task #N
 
-# 2. Create worktree OUTSIDE the main workspace
-cd ..  # Go to parent of Tasks-60
+# 2. Attach comprehensive prompt via MCP tool (NOT CLI)
+# Use: mcp_tasks-mcp_add_attachment_from_content
+#   task_id: N
+#   filename: TASK_{{N}}_PROMPT.md
+#   content: {{full-prompt-content}}
+#   profile: dev
+# Returns: Success with storage filename
+
+# 3. Create worktree OUTSIDE the main workspace
+cd ..  # Go to parent of Tasks
 git worktree add Tasks-N -b feature/descriptive-name
 
-# 3. Launch isolated VS Code window in the worktree
+# 4. Launch isolated VS Code window in the worktree
 code -n Tasks-N
 
 # In the worktree (Tasks-N):
-# 4. Bootstrap sequence runs automatically:
+# 5. Bootstrap sequence runs automatically:
 #    - Detects task ID from directory name: Tasks-{{N}}
-#    - Retrieves attached prompt via MCP
+#    - Retrieves attached prompt via MCP: mcp_tasks-mcp_get_attachment_content
 #    - Executes prompt instructions
 ```
 
@@ -556,10 +575,30 @@ database_url = "sqlite:///{config}/taskmanager/tasks-stale-profile.db"
 
 ### Profile Selection
 
-**CLI**: `tasks --profile dev ...` or `tasks --profile client-a ...`  
-**MCP Tools**: `profile` parameter (defaults to `default`)
+**CRITICAL**: Always use `dev` profile for all development work on tasks themselves.
 
-**Development Guideline**: Use `dev` profile for all project development tasks.
+**CLI**: `tasks --profile dev ...` for development work  
+**MCP Tools**: `profile: "dev"` parameter for development tasks (NOT the default!)
+
+**Profile Rules**:
+- **dev**: Development work on Tasks project itself (task creation, implementation, testing)
+  - Database: `~/.config/taskmanager/tasks-dev.db`
+  - Use for: Creating tasks, delegating to agents, task management during feature work
+  - Isolation: Separate from production/default profile; safe for experimentation
+  
+- **default**: Production tasks and user work
+  - Database: `~/.config/taskmanager/tasks.db`
+  - Use for: User personal task management, production workflows
+  - Never use for: Development of Tasks project itself
+
+**Default Assumption**: If profile not specified, tools default to `default`. Override this in development.
+
+**Development Guideline** (MANDATORY):
+- ✅ Creating task for feature work: `tasks --profile dev add "Feature name"`
+- ✅ Attaching prompt: `profile="dev"` in MCP tool parameter
+- ✅ Listing development tasks: `tasks --profile dev list`
+- ❌ Accidentally using default profile for development: Will pollute user's main task database
+- ❌ Assuming default profile in scripts: Always explicitly specify `--profile dev`
 
 ---
 

@@ -119,14 +119,17 @@ prompt_content = response  # This is the full text of the attached prompt
 
 **If you cannot retrieve the prompt**:
 1. Verify you're in a worktree (path should NOT be the main Tasks project)
-2. Verify the task exists in the dev profile: `tasks --profile dev show {{id}}`
+2. Verify the task exists in the DEV profile: `tasks --profile dev show {{id}}`
+   - **CRITICAL**: Always use `--profile dev` for development work on Tasks itself
 3. List attachments: `tasks --profile dev attach list {{id}}`
-4. If no attachments exist, ask the human to attach the prompt file to the task
+4. If no attachments exist, ask the human to attach the prompt file using:
+   - MCP tool: `mcp_tasks-mcp_add_attachment_from_content` (preferred)
+   - Task ID: {{id}}, Profile: `dev`, Filename: `TASK_{{id}}_PROMPT.md`
 
 **If the prompt file is corrupted or incomplete**:
 1. Save a copy: `tasks --profile dev attach get {{id}} {{filename}} > prompt_backup.txt`
 2. Report the issue to the human
-3. Wait for updated prompt attachment
+3. Wait for updated prompt attachment via MCP tool
 
 ---
 
@@ -150,7 +153,7 @@ For Task #58 (Profile Management CLI):
 
 This bootstrap process is part of the **Worktree-Based Development** workflow documented in `.github/copilot-instructions.md`:
 
-1. **Delegation**: Human creates task with detailed prompt attached
+1. **Delegation**: Human creates task in DEV profile with detailed prompt attached via MCP tool
 2. **Setup**: Worktree created at `Tasks-{{id}}`, VS Code launched
 3. **Bootstrap** (YOU ARE HERE): Retrieve task prompt via this process
 4. **Implementation**: Follow prompt instructions in isolated environment
@@ -162,9 +165,74 @@ The attached prompt is the **single source of truth** for implementation. Trust 
 
 ## Governance Notes
 
-- **Task Prompts**: Always attached to tasks via `tasks attach add`, never stored in repository
-- **Local Copies**: Delete any local copies after attachment (file is in task database)
-- **MCP Tool Reference**: Use `mcp_tasks-mcp_get_attachment_content` for retrieval—this is essential for delegation workflow
+### Development Profile (CRITICAL)
+
+**Always use `--profile dev` for all development work on Tasks itself**:
+
+```bash
+# Correct - for Tasks project development:
+tasks --profile dev show {{task-id}}
+tasks --profile dev attach list {{task-id}}
+
+# Wrong - pollutes production database:
+tasks show {{task-id}}  # Defaults to 'default' profile!
+```
+
+**Profile Rules**:
+- **`dev` profile**: For creating, managing, and working on Tasks project development tasks
+  - Database: `~/.config/taskmanager/tasks-dev.db`
+  - Use for: Feature development, bug fixes, experiments on Tasks application itself
+  - Isolation: Separate from user's personal task database
+
+- **`default` profile**: For user's personal task management (DO NOT USE for Tasks development)
+  - Database: `~/.config/taskmanager/tasks.db`
+  - Use for: Personal/production task management
+  - WARNING: Using default for development pollutes user's task database with test tasks
+
+### Prompt Attachment (MCP Tool)
+
+Task prompts are attached via the MCP tool `mcp_tasks-mcp_add_attachment_from_content`:
+
+```python
+# Correct - using MCP tool (ALWAYS PREFERRED):
+mcp_tasks-mcp_add_attachment_from_content(
+    task_id=11,
+    filename="TASK_11_PROMPT.md",
+    content="<full prompt content>",
+    profile="dev"
+)
+
+# Old/deprecated - using CLI (do not use):
+tasks --profile dev attach add 11 TASK_11_PROMPT.md
+```
+
+**Why MCP tool is preferred**:
+- Agent-to-agent communication: Agents attach prompts programmatically
+- No file system dependencies: Content stays in task database
+- Atomic operation: Success guaranteed when tool succeeds
+- Cleaner: No local file cleanup required
+
+### Retrieving Prompts (MCP Tool)
+
+When bootstrapping in a worktree, retrieve the attached prompt:
+
+```python
+# Correct - using MCP tool:
+mcp_tasks-mcp_get_attachment_content(
+    task_id=11,
+    filename="TASK_11_PROMPT.md"
+)
+
+# Returns: Full content of the attached prompt file
+```
+
+---
+
+## Governance Notes
+
+- **Task Prompts**: Always attached to tasks via MCP tool (`mcp_tasks-mcp_add_attachment_from_content`), never stored in repository
+- **Profile Isolation**: ALWAYS use `--profile dev` when working on Tasks development tasks
+- **MCP Tool Reference**: Use `mcp_tasks-mcp_get_attachment_content` for retrieval—essential for delegation workflow
 - **Confirmation**: If you're uncertain, ask the human for clarification rather than guessing
 
 ---

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-02-05
+
+### Changed
+
+- **Governance: MCP Tool for Prompt Attachments** (Governance Update):
+  - Updated copilot-instructions.md to mandate MCP tool `mcp_tasks-mcp_add_attachment_from_content` for all prompt attachments
+  - Deprecated CLI method `tasks attach add` for governance workflows
+  - Rationale: Agent-to-agent communication requires programmatic attachment, no file system dependencies
+  - Added detailed explanation: "Why MCP tool over CLI"
+  - Result: Cleaner agent-to-agent delegation workflows with atomic operations
+
+- **Governance: Always Use DEV Profile for Development Tasks** (CRITICAL):
+  - Updated copilot-instructions.md to emphasize MANDATORY use of `--profile dev` for all Tasks development work
+  - Added "Profile Selection" section with clear rules:
+    - `dev` profile: For Tasks project development (separate database, isolated)
+    - `default` profile: For user's personal task management (NEVER for Tasks development)
+  - Added mandatory guidelines with check/cross marks (✅/❌)
+  - Updated AGENT_GUIDANCE.md with critical warnings about profile usage
+  - Added troubleshooting section in AGENT_GUIDANCE.md documenting correct profile queries
+  - Result: Prevents accidental pollution of user's production task database with development tasks
+
+- **Documentation: Enhanced Bootstrap Guidance**:
+  - Updated AGENT_GUIDANCE.md "If Bootstrap Fails" section with emphasis on dev profile usage
+  - Added MCP tool syntax examples for prompt attachment and retrieval
+  - Added "Development Profile (CRITICAL)" section with clear rules and examples
+  - Added "Prompt Attachment (MCP Tool)" section explaining why MCP is preferred
+  - Added "Retrieving Prompts (MCP Tool)" section with code examples
+  - Result: Clearer, more actionable guidance for delegate agents
+
 ## [0.8.3] - 2026-02-04
 
 ### Changed
