@@ -58,6 +58,7 @@ code -n /path/to/Tasks-N
 **Future State**: When Copilot CLI is approved, Background Agents will handle worktree creation and feature implementation autonomously.
 
 **Detecting Copilot CLI**:
+Periodically check to see if Copilot CLI with Background Agent support is available:
 ```bash
 if command -v copilot &> /dev/null && copilot -p /model | grep -q "can use Background Agent"; then
     # Background Agent workflow available
