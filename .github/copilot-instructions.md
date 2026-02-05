@@ -32,10 +32,11 @@
 **Purpose**: Agent instructions are attached to tasks, not stored in the repository.
 
 **Process**:
-1. Create detailed prompt file locally describing the feature requirements, acceptance criteria, and implementation guidance
-2. Attach to the task using `tasks attach add {{task-id}} {{prompt-file}}`
-3. Name convention: `TASK_PROMPT.md` or `FEATURE_DESIGN.md`
-4. When worktree agent retrieves the task, the prompt attachment is available for reading
+1. Move task to in_progress status
+2. Create detailed prompt file locally describing the feature requirements, acceptance criteria, and implementation guidance
+3. Attach to the task using `tasks attach add {{task-id}} {{prompt-file}}`
+4. Name convention: `TASK_PROMPT.md` or `FEATURE_DESIGN.md`
+5. When worktree agent retrieves the task, the prompt attachment is available for reading
 
 **Benefits**:
 - Repository stays clean (no worktree cruft)
@@ -303,6 +304,17 @@ during Claude chat sessions.
 - `.vscode/` (may contain user-specific settings)
 - `migrations/` (database migrations are sensitive)
 - Production config files
+
+### Temporary Files
+
+**Location Requirement**: All temporary files must use workspace-designated locations. Never write to `/tmp`, `/var/tmp`, or any location outside the workspace without explicit user request.
+
+**Workspace Temp Locations**:
+- **Task Prompts**: Attach files to tasks via `tasks attach add` rather than storing in workspace
+- **Build/Test Artifacts**: Use `build/`, `htmlcov/`, or `.pytest_cache/` (add to `.gitignore`)
+- **Development Scratch**: Create `tmp/` or `.scratch/` directory as needed, add to `.gitignore`
+
+**Rationale**: Agents cannot reliably access `/tmp` paths or request human intervention for file creation outside workspace. Workspace-local paths ensure reproducibility and allow users to clean up artifacts without terminal involvement.
 
 ### Workspace Structure
 
