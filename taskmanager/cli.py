@@ -10,10 +10,9 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from datetime import date, datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from importlib.metadata import version, PackageNotFoundError
 
 try:
     import shtab
@@ -32,11 +31,10 @@ except ImportError:
 
 from taskmanager.config import get_settings
 from taskmanager.database import get_session, init_db
+from taskmanager.mcp_discovery import create_ephemeral_session_dir
 from taskmanager.models import Priority, TaskStatus
 from taskmanager.repository_impl import SQLTaskRepository
 from taskmanager.service import TaskService
-from taskmanager.mcp_discovery import get_allowed_tools, create_ephemeral_session_dir
-
 
 # Global automation flag - can be set via environment variable
 _automation_mode = os.getenv("TASKS_AUTOMATION", "").lower() in ("1", "true", "yes")
@@ -64,7 +62,7 @@ def print_table(headers, rows):
 
 class HelpfulArgumentParser(argparse.ArgumentParser):
     """ArgumentParser that shows help on error instead of just error message."""
-    
+
     def error(self, message):
         """Override error to show help text instead of just error."""
         # Print the help for the current parser
@@ -118,7 +116,7 @@ def confirm_action(message: str, force: bool = False, yes_flag: bool = False) ->
     """Confirm an action with the user."""
     if _automation_mode or force or yes_flag:
         return True
-    
+
     response = input(f"{message} [y/N]: ").strip().lower()
     return response in ('y', 'yes')
 
@@ -127,7 +125,7 @@ def load_from_file_if_needed(value: str | None) -> str | None:
     """Load content from a file if the value starts with @."""
     if value is None or not value.startswith("@"):
         return value
-    
+
     file_path = Path(value[1:])
     try:
         return file_path.read_text(encoding="utf-8").strip()
@@ -149,7 +147,7 @@ def cmd_add(args):
     try:
         service = get_service()
         description = load_from_file_if_needed(args.description)
-        
+
         due_date = None
         if args.due:
             try:
@@ -157,7 +155,7 @@ def cmd_add(args):
             except ValueError:
                 print("Error: Invalid date format. Use YYYY-MM-DD", file=sys.stderr)
                 sys.exit(1)
-        
+
         task = service.create_task(
             title=args.title,
             description=description,
@@ -167,7 +165,7 @@ def cmd_add(args):
             jira_issues=args.jira,
             tags=args.tags,
         )
-        
+
         print(f"✓ Created task #{task.id}: {task.title}")
         if description:
             print(f"  Description: {description}")
@@ -181,7 +179,7 @@ def cmd_add(args):
             print(f"  JIRA: {args.jira}")
         if args.tags:
             print(f"  Tags: {args.tags}")
-            
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -194,11 +192,11 @@ def cmd_list(args):
     """List tasks with optional filtering."""
     try:
         service = get_service()
-        
+
         # Handle status filtering
         status = TaskStatus[args.status.upper()] if args.status else None
         priority = Priority[args.priority.upper()] if args.priority else None
-        
+
         # If no status filter and --all not used, filter to open tasks
         if status is None and not args.all:
             tasks_pending, total_pending = service.list_tasks(
@@ -225,11 +223,11 @@ def cmd_list(args):
                 limit=args.limit,
                 offset=args.offset,
             )
-        
+
         if not tasks:
             print("No tasks found.")
             return
-        
+
         # Format output
         if args.format == "json":
             task_dicts = [
@@ -253,7 +251,7 @@ def cmd_list(args):
         else:  # table format
             # Header
             print(f"\nTasks ({len(tasks)} of {total})")
-            
+
             # Column headers
             headers = ["ID", "Title", "Status", "Priority", "Due Date"]
             if args.show_tags:
@@ -264,7 +262,7 @@ def cmd_list(args):
                 headers.append("Created")
             if args.show_updated:
                 headers.append("Updated")
-            
+
             # Rows
             rows = []
             for task in tasks:
@@ -276,13 +274,13 @@ def cmd_list(args):
                     TaskStatus.ARCHIVED: "✖",
                 }
                 status_display = f"{status_icons.get(task.status, '?')} {task.status.value}"
-                
+
                 due_display = ""
                 if task.due_date:
-                    is_overdue = (task.due_date < date.today() and 
+                    is_overdue = (task.due_date < date.today() and
                                 task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED])
                     due_display = f"{task.due_date} {'⚠' if is_overdue else ''}"
-                
+
                 row = [
                     str(task.id),
                     task.title[:40],
@@ -290,7 +288,7 @@ def cmd_list(args):
                     task.priority.value,
                     due_display,
                 ]
-                
+
                 if args.show_tags:
                     row.append(task.tags or "")
                 if args.show_jira is not None:
@@ -307,11 +305,11 @@ def cmd_list(args):
                     row.append(task.created_at.strftime("%Y-%m-%d") if task.created_at else "")
                 if args.show_updated:
                     row.append(task.updated_at.strftime("%Y-%m-%d") if task.updated_at else "")
-                
+
                 rows.append(row)
-            
+
             print_table(headers, rows)
-            
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -326,13 +324,13 @@ def cmd_show(args):
         service = get_service()
         settings = get_settings()
         task = service.get_task(args.task_id)
-        
+
         print(f"\nTask #{task.id}")
         print(f"Title: {task.title}")
-        
+
         if task.description:
             print(f"Description:\n  {task.description}")
-        
+
         status_icons = {
             TaskStatus.PENDING: "○",
             TaskStatus.IN_PROGRESS: "◐",
@@ -343,7 +341,7 @@ def cmd_show(args):
         status_icon = status_icons.get(task.status, "?")
         print(f"Status: {status_icon} {task.status.value}")
         print(f"Priority: {task.priority.value}")
-        
+
         if task.jira_issues:
             jira_links = service.format_jira_links(task.jira_issues, settings.atlassian.jira_url)
             if jira_links:
@@ -352,24 +350,24 @@ def cmd_show(args):
                     print(f"  - {issue_key}: {url}")
             else:
                 print(f"JIRA Issues: {task.jira_issues}")
-        
+
         if task.tags:
             print(f"Tags: {task.tags}")
-        
+
         attachments = service.list_attachments(task.id)
         if attachments:
             print(f"Attachments: {len(attachments)} file(s) - use 'tasks attach list {task.id}' to view")
-        
+
         if task.due_date:
-            is_overdue = (task.due_date < date.today() and 
+            is_overdue = (task.due_date < date.today() and
                         task.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED, TaskStatus.ARCHIVED])
             print(f"Due: {task.due_date} {'⚠ OVERDUE' if is_overdue else ''}")
-        
+
         print(f"Created: {task.created_at.strftime('%Y-%m-%d %H:%M')}")
         if task.updated_at:
             print(f"Updated: {task.updated_at.strftime('%Y-%m-%d %H:%M')}")
         print()
-        
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -383,7 +381,7 @@ def cmd_update(args):
     try:
         service = get_service()
         description = load_from_file_if_needed(args.description)
-        
+
         due_date = None
         if args.due:
             try:
@@ -391,7 +389,7 @@ def cmd_update(args):
             except ValueError:
                 print("Error: Invalid date format. Use YYYY-MM-DD", file=sys.stderr)
                 sys.exit(1)
-        
+
         updates = {}
         if args.title:
             updates['title'] = args.title
@@ -407,7 +405,7 @@ def cmd_update(args):
             updates['jira_issues'] = args.jira
         if args.tags:
             updates['tags'] = args.tags
-        
+
         # Handle clear flags
         if args.clear_description:
             updates['description'] = None
@@ -417,10 +415,10 @@ def cmd_update(args):
             updates['jira_issues'] = None
         if args.clear_tags:
             updates['tags'] = None
-        
+
         task = service.update_task(args.task_id, **updates)
         print(f"✓ Updated task #{task.id}: {task.title}")
-        
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -448,15 +446,15 @@ def cmd_delete(args):
     try:
         service = get_service()
         task = service.get_task(args.task_id)
-        
+
         if not args.force and not _automation_mode:
             if not confirm_action(f"Delete task #{task.id} '{task.title}'?"):
                 print("Cancelled.")
                 return
-        
+
         service.delete_task(args.task_id)
         print(f"✓ Deleted task #{args.task_id}")
-        
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -470,16 +468,16 @@ def cmd_tags(args):
     try:
         service = get_service()
         tags = service.list_tags()
-        
+
         if not tags:
             print("No tags found.")
             return
-        
+
         print(f"\nTags ({len(tags)} total):")
         for tag in tags:
             print(f"  - {tag}")
         print()
-        
+
     except Exception as e:
         print(f"Unexpected error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -489,93 +487,93 @@ def cmd_search(args):
     """Search across all tasks and workspaces."""
     try:
         service = get_service()
-        
+
         # Build filters
         filters = {}
         if args.status and args.status != "all":
             filters["status"] = TaskStatus[args.status.upper()]
-        
+
         # Get all tasks
         all_tasks, total = service.list_tasks(**filters, limit=100)
-        
+
         if total == 0:
             print("No tasks found")
             sys.exit(0)
-        
+
         task_matches = []
         workspace_matches = []
-        
+
         # Search task metadata
         if args.tasks:
             query_lower = args.query.lower() if not args.case_sensitive else args.query
-            
+
             for task in all_tasks:
                 matches = []
-                
+
                 title_check = task.title.lower() if not args.case_sensitive else task.title
                 if query_lower in title_check:
                     matches.append("title")
-                
+
                 if task.description:
                     desc_check = task.description.lower() if not args.case_sensitive else task.description
                     if query_lower in desc_check:
                         matches.append("description")
-                
+
                 if task.tags:
                     tags_check = task.tags.lower() if not args.case_sensitive else task.tags
                     if query_lower in tags_check:
                         matches.append("tags")
-                
+
                 if task.jira_issues:
                     jira_check = task.jira_issues.lower() if not args.case_sensitive else task.jira_issues
                     if query_lower in jira_check:
                         matches.append("JIRA")
-                
+
                 if matches:
                     task_matches.append({"task": task, "fields": matches})
-        
+
         # Search workspaces
         if args.workspaces:
             for task in all_tasks:
                 if not task.workspace_path or not task.id:
                     continue
-                
+
                 workspace_path = service.get_workspace_path(task.id)
                 if not workspace_path or not workspace_path.exists():
                     continue
-                
+
                 try:
                     rg_args = ["rg", "--color", "never", "--files-with-matches", "--max-count", "5"]
-                    
+
                     if not args.case_sensitive:
                         rg_args.append("--ignore-case")
-                    
+
                     if args.pattern != "*":
                         rg_args.extend(["--glob", args.pattern])
-                    
+
                     rg_args.extend(["--glob", "!.git", "--glob", "!tmp/*", "--glob", "!*.pyc", "--glob", "!__pycache__"])
                     rg_args.extend([args.query, str(workspace_path)])
-                    
+
                     result = subprocess.run(rg_args, capture_output=True, text=True, timeout=5)
-                    
+
                     if result.returncode == 0:
                         matched_files = result.stdout.strip().split("\n")
                         matched_files = [f.replace(str(workspace_path) + "/", "") for f in matched_files if f]
                         workspace_matches.append({"task": task, "files": matched_files})
-                
+
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     continue
-        
+
         # Display results
         if not task_matches and not workspace_matches:
             print(f"No matches found for: {args.query}")
             print(f"Searched: {total} task(s)")
             return
-        
+
         print(f"Search Results for: {args.query}\n")
         print(f"Searched: {total} task(s)")
         print(f"Found: {len(task_matches)} task match(es), {len(workspace_matches)} workspace match(es)\n")
-        
+
         # Show task matches
         if task_matches:
             print("Task Metadata Matches:")
@@ -588,7 +586,7 @@ def cmd_search(args):
                 if task.workspace_path:
                     print("   📁 Has workspace")
                 print()
-        
+
         # Show workspace matches
         if workspace_matches:
             print("Workspace Content Matches:")
@@ -603,7 +601,7 @@ def cmd_search(args):
                 if len(files) > 5:
                     print(f"      ... and {len(files) - 5} more")
                 print()
-    
+
     except FileNotFoundError:
         print("Error: ripgrep not found. Install with: brew install ripgrep", file=sys.stderr)
         sys.exit(1)
@@ -616,7 +614,7 @@ def cmd_search(args):
 def cmd_config_show(args):
     """Display current configuration."""
     settings = get_settings()
-    
+
     print("\nCurrent Configuration")
     print("-" * 50)
     print(f"Profile:           {settings.profile}")
@@ -632,17 +630,17 @@ def cmd_config_show(args):
 
 def cmd_config_path(args):
     """Show configuration file location."""
-    from taskmanager.config import get_user_config_path, get_project_config_path
-    
+    from taskmanager.config import get_project_config_path, get_user_config_path
+
     user_config = get_user_config_path()
     project_config = get_project_config_path()
-    
+
     print(f"User config: {user_config}")
     if user_config.exists():
         print("  ✓ exists")
     else:
         print("  ✗ not found")
-    
+
     if project_config:
         print(f"\nProject config: {project_config}")
         if project_config.exists():
@@ -655,19 +653,19 @@ def cmd_config_path(args):
 
 def cmd_config_edit(args):
     """Open configuration file in editor."""
-    from taskmanager.config import get_user_config_path, create_default_config
-    
+    from taskmanager.config import create_default_config, get_user_config_path
+
     config_path = get_user_config_path()
-    
+
     # Create config if it doesn't exist
     if not config_path.exists():
         print("Config file doesn't exist. Creating default...")
         create_default_config(config_path)
         print(f"✓ Created {config_path}")
-    
+
     # Try to find editor
     editor = os.environ.get("EDITOR", os.environ.get("VISUAL", "nano"))
-    
+
     try:
         subprocess.run([editor, str(config_path)], check=True)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
@@ -829,7 +827,7 @@ def cmd_attach_add(args):
         task_id = args.task_id
         file_arg = args.file_path
         filename_arg = args.filename
-        
+
         # Determine source and filename
         if file_arg:
             # File input
@@ -837,11 +835,11 @@ def cmd_attach_add(args):
             if not file_path.is_file():
                 print(f"Error: Not a file: {file_arg}", file=sys.stderr)
                 sys.exit(1)
-            
+
             # Read file
             with open(file_path, 'rb') as f:
                 content = f.read()
-            
+
             # Use provided filename or extract from path
             filename = filename_arg or file_path.name
         else:
@@ -850,7 +848,7 @@ def cmd_attach_add(args):
                 print("Error: --filename is required when reading from stdin", file=sys.stderr)
                 print("Usage: echo 'content' | tasks attach add TASK_ID --filename FILENAME.md", file=sys.stderr)
                 sys.exit(1)
-            
+
             # Read from stdin (binary mode)
             if hasattr(sys.stdin, 'buffer'):
                 # Python 3: binary mode available
@@ -858,21 +856,21 @@ def cmd_attach_add(args):
             else:
                 # Fallback: text mode
                 content = sys.stdin.read().encode('utf-8')
-            
+
             filename = filename_arg
-        
+
         # Read file content
         file_content = file_path.read_bytes()
         original_filename = file_path.name
-        
+
         # Add to database with dual-filename indexing
         attachment = service.add_db_attachment(args.task_id, original_filename, file_content)
-        
+
         print(f"✓ Attached file to task #{args.task_id}")
         print(f"  Original name: {attachment.original_filename}")
         print(f"  Stored as: {attachment.storage_filename}")
         print(f"  Size: {attachment.size_bytes:,} bytes")
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -883,24 +881,24 @@ def cmd_attach_list(args):
     try:
         service = get_service()
         attachments = service.list_db_attachments(args.task_id)
-        
+
         if not attachments:
             print(f"Task #{args.task_id} has no attachments.")
             return
-        
+
         print(f"\nAttachments for Task #{args.task_id}")
         print("-" * 80)
-        
+
         for attachment in attachments:
             size_kb = attachment.size_bytes / 1024
             size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb/1024:.1f} MB"
             added_str = attachment.created_at.strftime("%Y-%m-%d %H:%M")
-            
+
             print(f"  {attachment.original_filename}")
             print(f"    (stored as: {attachment.storage_filename}, {size_str})")
             print(f"    (added: {added_str})")
             print()
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -910,19 +908,19 @@ def cmd_attach_remove(args):
     """Remove an attachment from a task."""
     try:
         service = get_service()
-        
+
         if not confirm_action(f"Remove attachment '{args.filename}' from task #{args.task_id}?", force=args.force):
             print("Removal cancelled.")
             sys.exit(0)
-        
+
         removed = service.remove_attachment(args.task_id, args.filename)
-        
+
         if removed:
             print(f"✓ Removed attachment '{args.filename}' from task #{args.task_id}")
         else:
             print(f"Attachment '{args.filename}' not found.")
             sys.exit(1)
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -933,7 +931,7 @@ def cmd_attach_open(args):
     try:
         service = get_service()
         file_path = service.get_attachment_path(args.task_id, args.filename)
-        
+
         # Open the file using system default application
         if sys.platform == "darwin":  # macOS
             subprocess.run(["open", str(file_path)])
@@ -941,9 +939,9 @@ def cmd_attach_open(args):
             subprocess.run(["start", str(file_path)], shell=True)
         else:  # Linux
             subprocess.run(["xdg-open", str(file_path)])
-        
+
         print(f"Opened: {args.filename}")
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -953,16 +951,16 @@ def cmd_attach_get(args):
     """Retrieve and display attachment content."""
     try:
         service = get_service()
-        
+
         # Get attachment using dual-filename matching
         attachment = service.get_attachment_by_filename(args.task_id, args.filename)
-        
+
         if attachment is None:
             print(f"Attachment '{args.filename}' not found for task #{args.task_id}", file=sys.stderr)
             sys.exit(1)
-        
+
         content = attachment.file_data
-        
+
         # Output based on format
         if args.format == "raw":
             # Raw bytes to stdout
@@ -983,9 +981,9 @@ def cmd_attach_get(args):
                 text = content.decode('utf-8')
                 print(text)
             except UnicodeDecodeError:
-                print(f"Warning: Could not decode as UTF-8, showing as raw bytes", file=sys.stderr)
+                print("Warning: Could not decode as UTF-8, showing as raw bytes", file=sys.stderr)
                 sys.stdout.buffer.write(content)
-                
+
     except Exception as e:
         print(f"Error retrieving attachment: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -997,11 +995,11 @@ def cmd_workspace_create(args):
     try:
         service = get_service()
         metadata = service.create_workspace(task_id=args.task_id, initialize_git=not args.no_git)
-        
+
         print(f"✓ Created workspace for task #{args.task_id}")
         print(f"  Path: {metadata['workspace_path']}")
         print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -1012,18 +1010,18 @@ def cmd_workspace_info(args):
     try:
         service = get_service()
         metadata = service.get_workspace_info(args.task_id)
-        
+
         if not metadata:
             print(f"No workspace exists for task #{args.task_id}")
             sys.exit(0)
-        
+
         print(f"\nWorkspace for Task #{args.task_id}")
         print(f"  Path: {metadata['workspace_path']}")
         print(f"  Created: {metadata['created_at']}")
         print(f"  Git initialized: {'Yes' if metadata['git_initialized'] else 'No'}")
         if metadata.get('last_accessed'):
             print(f"  Last accessed: {metadata['last_accessed']}")
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -1034,13 +1032,13 @@ def cmd_workspace_path(args):
     try:
         service = get_service()
         path = service.get_workspace_path(args.task_id)
-        
+
         if not path:
             print(f"No workspace exists for task #{args.task_id}")
             sys.exit(0)
-        
+
         print(str(path))
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -1051,15 +1049,15 @@ def cmd_workspace_open(args):
     try:
         service = get_service()
         path = service.get_workspace_path(args.task_id)
-        
+
         if not path:
             print(f"No workspace exists for task #{args.task_id}")
             sys.exit(0)
-        
+
         if not path.exists():
             print(f"Workspace directory does not exist: {path}", file=sys.stderr)
             sys.exit(1)
-        
+
         # Open the directory
         if sys.platform == "darwin":  # macOS
             subprocess.run(["open", str(path)])
@@ -1067,9 +1065,9 @@ def cmd_workspace_open(args):
             subprocess.run(["explorer", str(path)])
         else:  # Linux
             subprocess.run(["xdg-open", str(path)])
-        
+
         print(f"Opened workspace: {path}")
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -1080,23 +1078,23 @@ def cmd_workspace_delete(args):
     try:
         service = get_service()
         path = service.get_workspace_path(args.task_id)
-        
+
         if not path:
             print(f"No workspace exists for task #{args.task_id}")
             sys.exit(0)
-        
+
         if not confirm_action(f"Delete workspace for task #{args.task_id}? This will permanently remove all files in {path}", force=args.force):
             print("Deletion cancelled.")
             sys.exit(0)
-        
+
         deleted = service.delete_workspace(args.task_id)
-        
+
         if deleted:
             print(f"✓ Deleted workspace for task #{args.task_id}")
         else:
             print("Workspace deletion failed.")
             sys.exit(1)
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -1107,44 +1105,44 @@ def cmd_workspace_list(args):
     try:
         service = get_service()
         workspace_path = service.get_workspace_path(args.task_id)
-        
+
         if not workspace_path:
             print(f"No workspace exists for task #{args.task_id}")
             sys.exit(0)
-        
+
         target_path = Path(workspace_path) / args.subdirectory if args.subdirectory else Path(workspace_path)
-        
+
         if not target_path.exists():
             print(f"Directory not found: {target_path}", file=sys.stderr)
             sys.exit(1)
-        
+
         # Get matching files
         if args.pattern == "*":
             files = list(target_path.rglob("*"))
         else:
             files = list(target_path.rglob(args.pattern))
-        
+
         # Filter to only files
         files = [f for f in files if f.is_file()]
         files = [f for f in files if ".git" not in str(f) and "__pycache__" not in str(f)]
-        
+
         if not files:
             print("No files found")
             sys.exit(0)
-        
+
         # Sort by modification time
         files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-        
+
         print(f"\nFiles in workspace for task #{args.task_id}")
         print(f"Path: {target_path}")
         print(f"Pattern: {args.pattern}")
         print(f"Found: {len(files)} file(s)\n")
-        
+
         for f in files[:50]:
             relative_path = f.relative_to(workspace_path)
             size = f.stat().st_size
             modified = datetime.fromtimestamp(f.stat().st_mtime)
-            
+
             # Format size
             if size < 1024:
                 size_str = f"{size}B"
@@ -1152,12 +1150,12 @@ def cmd_workspace_list(args):
                 size_str = f"{size / 1024:.1f}KB"
             else:
                 size_str = f"{size / (1024 * 1024):.1f}MB"
-            
+
             print(f"  {relative_path} - {size_str} - {modified.strftime('%Y-%m-%d %H:%M')}")
-        
+
         if len(files) > 50:
             print(f"\n... and {len(files) - 50} more files")
-    
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -1177,13 +1175,14 @@ def _gather_initial_context(service, settings):
     """
     from datetime import date, datetime
     from zoneinfo import ZoneInfo
-    from taskmanager.models import TaskStatus, Priority
-    
+
+    from taskmanager.models import Priority, TaskStatus
+
     # Get current time in user's local timezone
     tz = ZoneInfo(settings.timezone)
     now = datetime.now(tz)
     current_time_str = now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
-    
+
     # Gather task statistics
     all_tasks, _ = service.list_tasks(limit=100)  # Get up to 100 tasks for overview
     in_progress = [t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS]
@@ -1191,16 +1190,16 @@ def _gather_initial_context(service, settings):
     overdue = [t for t in all_tasks if t.due_date and t.due_date < date.today() and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
     high_priority = [t for t in all_tasks if t.priority == Priority.HIGH and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
     urgent_priority = [t for t in all_tasks if t.priority == Priority.URGENT and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]]
-    
+
     # Build display text for user (plain text, no Rich formatting)
     display_parts = []
     display_parts.append("📊 Current Task Context\n")
     display_parts.append(f"Current time: {current_time_str}")
-    
+
     profile_name = settings.profile
     display_parts.append(f"Profile: {profile_name}")
     display_parts.append(f"Total tasks: {len(all_tasks)}")
-    
+
     if urgent_priority:
         display_parts.append(f"⚡ Urgent: {len(urgent_priority)}")
     if high_priority:
@@ -1211,9 +1210,9 @@ def _gather_initial_context(service, settings):
         display_parts.append(f"▶️  In progress: {len(in_progress)}")
     if pending:
         display_parts.append(f"⏸️  Pending: {len(pending)}")
-    
+
     display_text = "\n".join(display_parts)
-    
+
     # Build structured context for Claude
     context_parts = []
     context_parts.append("# Initial Task Context\n")
@@ -1224,7 +1223,7 @@ def _gather_initial_context(service, settings):
     context_parts.append(f"**Weekend:** {'Yes' if now.weekday() >= 5 else 'No'}\n")
     context_parts.append(f"**Profile:** {profile_name}")
     context_parts.append(f"**Total tasks:** {len(all_tasks)}\n")
-    
+
     if urgent_priority:
         context_parts.append(f"## 🚨 Urgent Tasks ({len(urgent_priority)})")
         for task in urgent_priority[:5]:  # Show up to 5
@@ -1232,7 +1231,7 @@ def _gather_initial_context(service, settings):
         if len(urgent_priority) > 5:
             context_parts.append(f"  _(and {len(urgent_priority) - 5} more)_")
         context_parts.append("")
-    
+
     if overdue:
         context_parts.append(f"## ⏰ Overdue Tasks ({len(overdue)})")
         for task in overdue[:5]:
@@ -1240,7 +1239,7 @@ def _gather_initial_context(service, settings):
         if len(overdue) > 5:
             context_parts.append(f"  _(and {len(overdue) - 5} more)_")
         context_parts.append("")
-    
+
     if in_progress:
         context_parts.append(f"## ▶️ In Progress ({len(in_progress)})")
         for task in in_progress[:5]:
@@ -1249,7 +1248,7 @@ def _gather_initial_context(service, settings):
         if len(in_progress) > 5:
             context_parts.append(f"  _(and {len(in_progress) - 5} more)_")
         context_parts.append("")
-    
+
     if high_priority and not urgent_priority:
         context_parts.append(f"## ⚠️ High Priority Tasks ({len(high_priority)})")
         for task in high_priority[:3]:
@@ -1257,11 +1256,11 @@ def _gather_initial_context(service, settings):
         if len(high_priority) > 3:
             context_parts.append(f"  _(and {len(high_priority) - 3} more)_")
         context_parts.append("")
-    
+
     context_parts.append("\n**I'm ready to help you with your tasks. What would you like to work on?**")
-    
+
     context_prompt = "\n".join(context_parts)
-    
+
     return display_text, context_prompt
 
 
@@ -1269,13 +1268,12 @@ def cmd_chat(args):
     """Launch Claude agent session with task and JIRA context."""
     try:
         import json
-        import tempfile
         import shutil
         from datetime import datetime
-        
+
         service = get_service()
         settings = get_settings()
-        
+
         # Verify claude CLI is available
         try:
             subprocess.run(
@@ -1288,7 +1286,7 @@ def cmd_chat(args):
             print("Error: 'claude' CLI not found or not working", file=sys.stderr)
             print("Install Claude CLI: https://github.com/anthropics/anthropic-sdk-python")
             sys.exit(1)
-        
+
         # Determine the working directory
         working_dir = Path.cwd()
         if args.task_id:
@@ -1298,20 +1296,20 @@ def cmd_chat(args):
                 print(f"No workspace exists for task #{args.task_id}. Creating one...")
                 service.create_workspace(task_id=args.task_id, initialize_git=True)
                 workspace_path = service.get_workspace_path(args.task_id)
-            
+
             if workspace_path:
                 working_dir = workspace_path
                 print(f"Opening chat session for task #{args.task_id}")
-        
+
         # Prepare environment with MCP server configuration
         env = os.environ.copy()
-        
+
         # Get current profile to ensure MCP server uses the same profile
         current_profile = settings.profile
-        
+
         # Get profile modifier if configured for this profile
         profile_modifier = settings.get_profile_modifier()
-        
+
         # Build MCP servers configuration for claude CLI
         # Important: Pass profile to tasks-mcp server so all operations use the correct profile
         mcp_servers = {
@@ -1322,7 +1320,7 @@ def cmd_chat(args):
                 }
             }
         }
-        
+
         # Apply profile modifiers to tasks-mcp if configured
         if profile_modifier and "tasks-mcp" in profile_modifier.mcp_servers:
             tasks_modifier = profile_modifier.mcp_servers["tasks-mcp"]
@@ -1332,22 +1330,22 @@ def cmd_chat(args):
                 mcp_servers["tasks"]["args"] = tasks_modifier.args
             if tasks_modifier.env:
                 mcp_servers["tasks"]["env"].update(tasks_modifier.env)
-        
+
         # Add atlassian-mcp with credentials from config file
         atlassian_config = settings.atlassian.resolve_secrets()
-        
+
         # Check if we have atlassian credentials configured
         if atlassian_config.jira_url and atlassian_config.jira_token:
             atlassian_env = {
                 "JIRA_URL": atlassian_config.jira_url,
                 "JIRA_SSL_VERIFY": str(atlassian_config.jira_ssl_verify).lower(),
             }
-            
+
             if atlassian_config.jira_username:
                 atlassian_env["JIRA_USERNAME"] = atlassian_config.jira_username
             if atlassian_config.jira_token:
                 atlassian_env["JIRA_PERSONAL_TOKEN"] = atlassian_config.jira_token
-            
+
             if atlassian_config.confluence_url:
                 atlassian_env["CONFLUENCE_URL"] = atlassian_config.confluence_url
             if atlassian_config.confluence_username:
@@ -1356,13 +1354,13 @@ def cmd_chat(args):
                 atlassian_env["CONFLUENCE_PERSONAL_TOKEN"] = atlassian_config.confluence_token
             if atlassian_config.confluence_url:
                 atlassian_env["CONFLUENCE_SSL_VERIFY"] = str(atlassian_config.confluence_ssl_verify).lower()
-            
+
             mcp_servers["atlassian"] = {
                 "command": "uvx",
                 "args": ["--native-tls", "mcp-atlassian"],
                 "env": atlassian_env
             }
-            
+
             # Apply profile modifiers to atlassian-mcp if configured
             if profile_modifier and "atlassian-mcp" in profile_modifier.mcp_servers:
                 atlassian_modifier = profile_modifier.mcp_servers["atlassian-mcp"]
@@ -1372,17 +1370,17 @@ def cmd_chat(args):
                     mcp_servers["atlassian"]["args"] = atlassian_modifier.args
                 if atlassian_modifier.env:
                     mcp_servers["atlassian"]["env"].update(atlassian_modifier.env)
-            
+
             print("✓ Atlassian credentials loaded from configuration")
         else:
             print("Warning: Atlassian credentials not configured")
             print("  Configure in ~/.taskmanager/config.toml under [atlassian]")
             print("  Required: jira_url, jira_token")
             print("  Optional: jira_username, confluence_url, confluence_username, confluence_token")
-        
+
         # Set environment for claude CLI
         env["MCP_SERVERS"] = json.dumps(mcp_servers)
-        
+
         # Gather and display initial context (unless disabled)
         initial_prompt = None
         if not args.no_context:
@@ -1392,7 +1390,7 @@ def cmd_chat(args):
                 initial_prompt = context_prompt
             except Exception as e:
                 print(f"Warning: Could not load initial context: {e}")
-        
+
         # Build comprehensive system prompt for the claude session
         system_prompt = """# Mission: Smart Assistant for Task & JIRA Management
 
@@ -1499,12 +1497,12 @@ When starting a new session, please:
 - **Clarity:** This ensures precise communication and avoids ambiguity when discussing multiple tasks
 
 """
-        
+
         # Add current task context if provided
         if args.task_id:
             task = service.get_task(args.task_id)
-            system_prompt += f"\n## Current Task Focus\n\n"
-            system_prompt += f"You are currently working in the context of:\n\n"
+            system_prompt += "\n## Current Task Focus\n\n"
+            system_prompt += "You are currently working in the context of:\n\n"
             system_prompt += f"- **Task ID:** #{task.id}\n"
             system_prompt += f"- **Title:** {task.title}\n"
             system_prompt += f"- **Status:** {task.status.value}\n"
@@ -1518,42 +1516,42 @@ When starting a new session, please:
             if task.tags:
                 system_prompt += f"- **Tags:** {', '.join(task.tags)}\n"
             system_prompt += f"- **Workspace:** {working_dir}\n"
-            system_prompt += f"\nPlease help the user work on this task efficiently.\n"
-        
+            system_prompt += "\nPlease help the user work on this task efficiently.\n"
+
         # Add profile-specific prompt additions if configured
         if profile_modifier and profile_modifier.prompt_additions:
             system_prompt += f"\n## Profile-Specific Instructions\n\n{profile_modifier.prompt_additions}\n"
-        
+
         try:
             # Launch claude CLI with comprehensive system prompt and initial context
             print("\nStarting Claude agent session...")
             print("Type 'exit' or Ctrl+D to end the session\n")
-            
+
             # Create ephemeral session directory with settings.json
             session_dir, session_env = create_ephemeral_session_dir(system_prompt, str(working_dir))
-            
+
             # Merge session environment with existing environment
             full_env = env.copy()
             full_env.update(session_env)
-            
+
             # Debug: Copy config files to /tmp for inspection
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             debug_dir = Path(f"/tmp/tasks-chat-debug-{timestamp}")
             debug_dir.mkdir(exist_ok=True)
-            
+
             # Copy the config files
             shutil.copy(f"{session_dir}/.claude/settings.json", debug_dir / "settings.json")
             shutil.copy(f"{session_dir}/.mcp.json", debug_dir / "mcp.json")
-            
+
             # Write env vars to a file
             with open(debug_dir / "env.txt", 'w') as f:
                 f.write(f"Session directory: {session_dir}\n")
                 f.write(f"CLAUDE_CONFIG_DIR: {session_env['CLAUDE_CONFIG_DIR']}\n")
                 f.write(f"CLAUDE_CODE_TMPDIR: {session_env.get('CLAUDE_CODE_TMPDIR', 'not set')}\n")
                 f.write(f"HOME: {session_env.get('HOME', 'not overridden')}\n")
-            
+
             print(f"Debug config copied to: {debug_dir}\n")
-            
+
             # Build claude command with strict MCP config flags
             # --mcp-config: Specifies the path to our MCP servers JSON
             # --strict-mcp-config: Ignores global MCP servers from ~/.claude.json
@@ -1565,7 +1563,7 @@ When starting a new session, please:
                 "--strict-mcp-config",
                 "--allowed-tools", "mcp__tasks-mcp__*", "mcp__atlassian-mcp__*"
             ]
-            
+
             # Run claude with initial prompt via stdin
             subprocess.run(
                 claude_cmd,
@@ -1575,14 +1573,14 @@ When starting a new session, please:
                 text=True,
                 check=False
             )
-            
+
             print("\n✓ Claude session ended")
             print(f"Debug config at: {debug_dir}")
             print(f"Session dir: {session_dir}")
         except Exception as e:
             print(f"Error: {str(e)}", file=sys.stderr)
             sys.exit(1)
-        
+
     except ValueError as e:
         print(f"Error: {str(e)}", file=sys.stderr)
         sys.exit(1)
@@ -1591,34 +1589,237 @@ When starting a new session, please:
         sys.exit(1)
 
 
+def cmd_backup_list(args):
+    """List all available point-in-time backups for a profile."""
+    try:
+
+        from taskmanager.backup import get_backup_dir, list_backups
+
+        profile = args.profile or "default"
+        backups = list_backups(profile)
+
+        if not backups:
+            print(
+                f"No backups found for profile '{profile}'",
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+        if args.json:
+            backup_list = [
+                {
+                    "filename": backup.name,
+                    "path": str(backup),
+                    "size_bytes": backup.stat().st_size,
+                    "modified": backup.stat().st_mtime,
+                }
+                for backup in backups
+            ]
+            print(json.dumps(backup_list, indent=2))
+        else:
+            headers = ["Backup Timestamp", "Filename", "Size (MB)"]
+            rows = []
+            for backup in backups:
+                size_mb = backup.stat().st_size / (1024 * 1024)
+                # Extract timestamp from filename (YYYY-MM-DD_HH-MM-SS_dbname.db)
+                timestamp = backup.name.split("_")[0:2]
+                timestamp_str = f"{timestamp[0]} {timestamp[1].replace('-', ':')}"
+                rows.append([
+                    timestamp_str,
+                    backup.name,
+                    f"{size_mb:.2f}"
+                ])
+
+            print(f"\nBackups for profile '{profile}':")
+            print(f"Location: {get_backup_dir(profile)}\n")
+            print_table(headers, rows)
+            print(f"\nTotal: {len(backups)} backup(s)")
+
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_backup_info(args):
+    """Examine detailed information about a specific backup."""
+    try:
+        import sqlite3
+
+        from taskmanager.backup import list_backups
+
+        profile = args.profile or "default"
+        backups = list_backups(profile)
+
+        if not backups:
+            print(
+                f"No backups found for profile '{profile}'",
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+        # Find the requested backup by index or timestamp
+        backup = None
+        if args.backup.isdigit():
+            idx = int(args.backup)
+            if 0 <= idx < len(backups):
+                backup = backups[idx]
+        else:
+            # Try to match by timestamp or filename
+            for b in backups:
+                if args.backup in b.name:
+                    backup = b
+                    break
+
+        if not backup:
+            print(
+                f"Backup '{args.backup}' not found. Use 'tasks backup list' "
+                f"to see available backups.",
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+        # Analyze the backup
+        stat = backup.stat()
+        size_mb = stat.st_size / (1024 * 1024)
+        timestamp_str = datetime.fromtimestamp(
+            stat.st_mtime
+        ).strftime("%Y-%m-%d %H:%M:%S")
+
+        # Try to validate SQLite integrity
+        integrity_ok = False
+        table_count = 0
+        try:
+            conn = sqlite3.connect(f"file:{backup}?mode=ro", uri=True)
+            cursor = conn.cursor()
+            # Check integrity
+            cursor.execute("PRAGMA integrity_check")
+            integrity_result = cursor.fetchone()[0]
+            integrity_ok = integrity_result == "ok"
+            # Count tables
+            cursor.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+            )
+            table_count = cursor.fetchone()[0]
+            conn.close()
+        except Exception:
+            integrity_ok = False
+
+        print("\nBackup Information:")
+        print(f"  Profile: {profile}")
+        print(f"  Filename: {backup.name}")
+        print(f"  Full Path: {backup}")
+        print(f"  Size: {size_mb:.2f} MB ({stat.st_size:,} bytes)")
+        print(f"  Created: {timestamp_str}")
+        print(f"  Integrity: {'✓ Valid' if integrity_ok else '✗ Invalid or unreadable'}")
+        if integrity_ok:
+            print(f"  Tables: {table_count}")
+
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_backup_restore(args):
+    """Restore the database from a point-in-time backup."""
+    try:
+        import shutil
+
+        from taskmanager.backup import get_database_path, list_backups
+
+        profile = args.profile or "default"
+        backups = list_backups(profile)
+
+        if not backups:
+            print(
+                f"No backups found for profile '{profile}'",
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+        # Find the requested backup
+        backup = None
+        if args.backup.isdigit():
+            idx = int(args.backup)
+            if 0 <= idx < len(backups):
+                backup = backups[idx]
+        else:
+            for b in backups:
+                if args.backup in b.name:
+                    backup = b
+                    break
+
+        if not backup:
+            print(
+                f"Backup '{args.backup}' not found. Use 'tasks backup list' "
+                f"to see available backups.",
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+        # Get current database path
+        db_path = get_database_path(profile)
+        if not db_path:
+            print(
+                f"No database found for profile '{profile}'",
+                file=sys.stderr
+            )
+            sys.exit(1)
+
+        # Confirm restoration unless --force flag is used
+        if not args.force:
+            print("\n⚠️  WARNING: This will restore the database from backup:")
+            print(f"  Backup: {backup.name}")
+            print(f"  Database: {db_path}")
+            print(f"\nCurrent database will be moved to: {db_path}.pre-restore-backup")
+            response = input("\nProceed with restoration? (yes/no): ").strip().lower()
+            if response != "yes":
+                print("Restoration cancelled.")
+                sys.exit(0)
+
+        # Create safety backup of current database
+        if db_path.exists():
+            safety_backup = Path(f"{db_path}.pre-restore-backup")
+            shutil.copy2(db_path, safety_backup)
+            print(f"✓ Current database backed up to: {safety_backup}")
+
+        # Restore from backup
+        shutil.copy2(backup, db_path)
+        print(f"✓ Restored database from: {backup.name}")
+        print(f"✓ Database ready at: {db_path}")
+
+    except Exception as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     """Main entry point for the CLI."""
     # Define all subcommands for abbreviation expansion
-    subcommands = ['add', 'new', 'list', 'show', 'update', 'complete', 'delete', 'tags', 'search', 
+    subcommands = ['add', 'new', 'list', 'show', 'update', 'complete', 'delete', 'tags', 'search',
                    'config', 'attach', 'workspace', 'chat']
-    
+
     # Expand abbreviations in sys.argv before parsing
     sys.argv = expand_abbreviations(sys.argv, subcommands)
-    
+
     # Create the main parser with abbreviation support
     parser = HelpfulArgumentParser(
         prog='tasks',
         description='A powerful CLI task manager for organizing your work and life.',
         allow_abbrev=True,
     )
-    
+
     parser.add_argument('-V', '--version', action='version', version=f'tasks {get_version()}')
     parser.add_argument('-c', '--config', type=Path, help='Path to configuration file')
     parser.add_argument('-p', '--profile', help='Configuration profile (default, dev, test)')
     parser.add_argument('-d', '--database', help='Database URL override')
-    
+
     # Add shell completion support if shtab is available
     if SHTAB_AVAILABLE:
         shtab.add_argument_to(parser, ['-s', '--print-completion'])
-    
+
     # Create subparsers - note: parser_class inherits allow_abbrev from parent
     subparsers = parser.add_subparsers(dest='command', help='Available commands', parser_class=HelpfulArgumentParser)
-    
+
     # Add command
     add_parser = subparsers.add_parser('add', help='Create a new task', aliases=['new'])
     add_parser.add_argument('title', help='Task title')
@@ -1629,7 +1830,7 @@ def main():
     add_parser.add_argument('-j', '--jira', help='JIRA issue keys (comma-separated)')
     add_parser.add_argument('-t', '--tags', help='Tags (comma-separated)')
     add_parser.set_defaults(func=cmd_add)
-    
+
     # List command
     list_parser = subparsers.add_parser('list', help='List tasks with optional filtering')
     list_parser.add_argument('-s', '--status', help='Filter by status')
@@ -1644,12 +1845,12 @@ def main():
     list_parser.add_argument('--show-created', action='store_true', help='Show created date column in table')
     list_parser.add_argument('--show-updated', action='store_true', help='Show updated date column in table')
     list_parser.set_defaults(func=cmd_list)
-    
+
     # Show command
     show_parser = subparsers.add_parser('show', help='Show detailed information about a specific task')
     show_parser.add_argument('task_id', type=int, help='Task ID to display')
     show_parser.set_defaults(func=cmd_show)
-    
+
     # Update command
     update_parser = subparsers.add_parser('update', help='Update an existing task')
     update_parser.add_argument('task_id', type=int, help='Task ID to update')
@@ -1665,22 +1866,22 @@ def main():
     update_parser.add_argument('--clear-jira', action='store_true', help='Clear JIRA issues')
     update_parser.add_argument('--clear-tags', action='store_true', help='Clear tags')
     update_parser.set_defaults(func=cmd_update)
-    
+
     # Complete command
     complete_parser = subparsers.add_parser('complete', help='Mark a task as complete')
     complete_parser.add_argument('task_id', type=int, help='Task ID to complete')
     complete_parser.set_defaults(func=cmd_complete)
-    
+
     # Delete command
     delete_parser = subparsers.add_parser('delete', help='Delete a task permanently')
     delete_parser.add_argument('task_id', type=int, help='Task ID to delete')
     delete_parser.add_argument('--force', action='store_true', help='Skip confirmation')
     delete_parser.set_defaults(func=cmd_delete)
-    
+
     # Tags command
     tags_parser = subparsers.add_parser('tags', help='List all unique tags')
     tags_parser.set_defaults(func=cmd_tags)
-    
+
     # Search command
     search_parser = subparsers.add_parser('search', help='Search across all tasks and workspaces')
     search_parser.add_argument('query', help='Search query')
@@ -1692,62 +1893,62 @@ def main():
     search_parser.add_argument('-c', '--case-sensitive', action='store_true', help='Case sensitive search')
     search_parser.add_argument('-s', '--status', default='all', help='Filter by status')
     search_parser.set_defaults(func=cmd_search)
-    
+
     # Config sub-commands
     config_parser = subparsers.add_parser('config', help='Manage configuration')
     config_subparsers = config_parser.add_subparsers(dest='config_command', help='Config commands')
-    
+
     config_show = config_subparsers.add_parser('show', help='Display current configuration')
     config_show.set_defaults(func=cmd_config_show)
-    
+
     config_path = config_subparsers.add_parser('path', help='Show configuration file location')
     config_path.set_defaults(func=cmd_config_path)
-    
+
     config_edit = config_subparsers.add_parser('edit', help='Open configuration file in editor')
     config_edit.set_defaults(func=cmd_config_edit)
-    
+
     # Profile sub-commands
     profile_parser = subparsers.add_parser('profile', help='Manage database profiles')
     profile_subparsers = profile_parser.add_subparsers(dest='profile_command', help='Profile commands')
-    
+
     profile_list = profile_subparsers.add_parser('list', help='List all profile databases')
     profile_list.add_argument('--json', action='store_true', help='Output as JSON for scripting')
     profile_list.add_argument('--configured-only', action='store_true', help='Show only configured profiles (exclude auto-created)')
     profile_list.set_defaults(func=cmd_profile_list)
-    
+
     profile_audit = profile_subparsers.add_parser('audit', help='Audit a profile before deletion')
     profile_audit.add_argument('profile', help='Profile name to audit')
     profile_audit.set_defaults(func=cmd_profile_audit)
-    
+
     profile_delete = profile_subparsers.add_parser('delete', help='Delete a profile (CLI-only for safety)')
     profile_delete.add_argument('profile', help='Profile name to delete')
     profile_delete.set_defaults(func=cmd_profile_delete)
-    
+
     # Attach sub-commands
     attach_parser = subparsers.add_parser('attach', help='Manage task attachments')
     attach_subparsers = attach_parser.add_subparsers(dest='attach_command', help='Attachment commands')
-    
+
     attach_add = attach_subparsers.add_parser('add', help='Attach a file to a task')
     attach_add.add_argument('task_id', type=int, help='Task ID to attach file to')
     attach_add.add_argument('file_path', nargs='?', help='Path to file to attach (optional, reads stdin if missing)')
     attach_add.add_argument('-f', '--filename', help='Attachment filename (required when reading from stdin)')
     attach_add.set_defaults(func=cmd_attach_add)
-    
+
     attach_list = attach_subparsers.add_parser('list', help='List all attachments for a task')
     attach_list.add_argument('task_id', type=int, help='Task ID to list attachments for')
     attach_list.set_defaults(func=cmd_attach_list)
-    
+
     attach_remove = attach_subparsers.add_parser('remove', help='Remove an attachment from a task')
     attach_remove.add_argument('task_id', type=int, help='Task ID')
     attach_remove.add_argument('filename', help='Filename of attachment to remove')
     attach_remove.add_argument('--force', action='store_true', help='Skip confirmation')
     attach_remove.set_defaults(func=cmd_attach_remove)
-    
+
     attach_open = attach_subparsers.add_parser('open', help='Open an attachment file')
     attach_open.add_argument('task_id', type=int, help='Task ID')
     attach_open.add_argument('filename', help='Filename of attachment to open')
     attach_open.set_defaults(func=cmd_attach_open)
-    
+
     attach_get = attach_subparsers.add_parser('get', help='Retrieve attachment file content')
     attach_get.add_argument('task_id', type=int, help='Task ID')
     attach_get.add_argument('filename', help='Attachment filename')
@@ -1758,48 +1959,88 @@ def main():
         help='Output format (default: text)'
     )
     attach_get.set_defaults(func=cmd_attach_get)
-    
+
     # Workspace sub-commands
     workspace_parser = subparsers.add_parser('workspace', help='Manage task workspaces')
     workspace_subparsers = workspace_parser.add_subparsers(dest='workspace_command', help='Workspace commands')
-    
+
     workspace_create = workspace_subparsers.add_parser('create', help='Create a persistent workspace for a task')
     workspace_create.add_argument('task_id', type=int, help='Task ID to create workspace for')
     workspace_create.add_argument('--no-git', action='store_true', help='Skip git initialization')
     workspace_create.set_defaults(func=cmd_workspace_create)
-    
+
     workspace_info = workspace_subparsers.add_parser('info', help='Show workspace information for a task')
     workspace_info.add_argument('task_id', type=int, help='Task ID')
     workspace_info.set_defaults(func=cmd_workspace_info)
-    
+
     workspace_path = workspace_subparsers.add_parser('path', help="Show the path to a task's workspace")
     workspace_path.add_argument('task_id', type=int, help='Task ID')
     workspace_path.set_defaults(func=cmd_workspace_path)
-    
+
     workspace_open = workspace_subparsers.add_parser('open', help="Open a task's workspace in Finder/Explorer")
     workspace_open.add_argument('task_id', type=int, help='Task ID')
     workspace_open.set_defaults(func=cmd_workspace_open)
-    
+
     workspace_delete = workspace_subparsers.add_parser('delete', help="Delete a task's workspace and all its contents")
     workspace_delete.add_argument('task_id', type=int, help='Task ID')
     workspace_delete.add_argument('--force', action='store_true', help='Skip confirmation')
     workspace_delete.set_defaults(func=cmd_workspace_delete)
-    
+
     workspace_list = workspace_subparsers.add_parser('list', help="List files in a task's workspace")
     workspace_list.add_argument('task_id', type=int, help='Task ID')
     workspace_list.add_argument('-d', '--subdirectory', default='', help='Subdirectory to list')
     workspace_list.add_argument('-p', '--pattern', default='*', help='File pattern (e.g., *.py, *.md)')
     workspace_list.set_defaults(func=cmd_workspace_list)
-    
+
     # Chat command
     chat_parser = subparsers.add_parser('chat', help='Launch Claude agent session with task and JIRA context')
     chat_parser.add_argument('task_id', nargs='?', type=int, help='Optional task ID to focus on')
     chat_parser.add_argument('--no-context', action='store_true', help='Skip automatic context loading')
     chat_parser.set_defaults(func=cmd_chat)
-    
+
+    # Backup sub-commands
+    backup_parser = subparsers.add_parser('backup', help='Manage point-in-time database backups')
+    backup_subparsers = backup_parser.add_subparsers(dest='backup_command', help='Backup commands')
+
+    backup_list = backup_subparsers.add_parser(
+        'list',
+        help='List available backups for a profile'
+    )
+    backup_list.add_argument(
+        '--json',
+        action='store_true',
+        help='Output as JSON for scripting'
+    )
+    backup_list.set_defaults(func=cmd_backup_list)
+
+    backup_info = backup_subparsers.add_parser(
+        'info',
+        help='Examine details of a specific backup (integrity, size, tables)'
+    )
+    backup_info.add_argument(
+        'backup',
+        help='Backup identifier (index number or timestamp from "tasks backup list")'
+    )
+    backup_info.set_defaults(func=cmd_backup_info)
+
+    backup_restore = backup_subparsers.add_parser(
+        'restore',
+        help='Restore database from a point-in-time backup'
+    )
+    backup_restore.add_argument(
+        'backup',
+        help='Backup identifier (index number or timestamp from "tasks backup list")'
+    )
+    backup_restore.add_argument(
+        '--force',
+        action='store_true',
+        help='Skip confirmation prompt (current DB backed up automatically)'
+    )
+    backup_restore.set_defaults(func=cmd_backup_restore)
+
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Handle global options
     if args.profile or args.database or args.config:
         settings = get_settings()
@@ -1808,7 +2049,7 @@ def main():
         if args.database:
             settings.database_url = args.database
         # Config file handling would go here
-    
+
     # Execute command
     if hasattr(args, 'func'):
         args.func(args)
