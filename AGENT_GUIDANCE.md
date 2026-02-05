@@ -160,12 +160,87 @@ The attached prompt is the **single source of truth** for implementation. Trust 
 
 ---
 
+## Delegate Agent Status Signaling
+
+When implementing a task in a worktree, use task status to communicate with the main branch agent. The task status system enables multi-agent coordination for feature development.
+
+### Marking Task as STUCK
+
+Use `stuck` when you encounter a blocker you cannot resolve independently.
+
+**Examples of blockers**:
+- Environment setup fails (Python version mismatch, dependency installation error)
+- Requirements unclear or conflicting with existing code
+- Missing permissions or access (database, external service)
+- Design decision needed (requires human judgment)
+- Dependency issue preventing progress
+
+**When marking stuck**:
+```bash
+tasks update {{task_id}} --status stuck
+```
+
+Then update the task description with:
+1. Detailed blocker explanation
+2. Steps already tried to resolve
+3. What information/permission/decision is needed
+4. Any relevant error logs or stack traces
+
+The main agent will intervene and either:
+- Provide missing information/access
+- Mark back to `assigned` to retry
+- Mark `cancelled` if blocker is unresolvable
+- Provide clarification and reassign
+
+### Marking Task as REVIEW
+
+Use `review` when implementation is **complete and all quality gates pass**.
+
+**Checklist before marking review** (must pass ALL):
+- [ ] All code committed to feature branch: `git status` shows clean
+- [ ] No uncommitted changes: `git status`
+- [ ] Linting passes: `ruff check .`
+- [ ] Type checking passes: `mypy taskmanager/ mcp_server/`
+- [ ] Tests pass: `pytest tests/ -v`
+- [ ] Security scan passes: `bandit -r taskmanager/`
+- [ ] Feature branch has all commits: `git log --oneline | head -5`
+
+**When marking review**:
+```bash
+tasks update {{task_id}} --status review
+```
+
+Then update the task description with:
+1. Summary of changes delivered
+2. Test coverage metrics (% passing, test count)
+3. Any known limitations or future improvements
+4. Performance impact (if relevant)
+
+The main agent will review your work and either:
+- Mark `integrate` if approved (you can proceed with integration)
+- Mark back to `assigned` with feedback (implement changes, mark `review` again)
+- Mark `stuck` if they found a blocker (wait for their guidance)
+
+### Checking for INTEGRATE Signal
+
+Before attempting to merge feature branch to main, verify the task is marked `integrate`:
+
+```bash
+tasks show {{task_id}} | grep -i status
+# Should show: Status: integrate
+```
+
+If not marked `integrate`, **DO NOT MERGE**—wait for approval.
+
+---
+
 ## Governance Notes
 
 - **Task Prompts**: Always attached to tasks via `tasks attach add`, never stored in repository
 - **Local Copies**: Delete any local copies after attachment (file is in task database)
 - **MCP Tool Reference**: Use `mcp_tasks-mcp_get_attachment_content` for retrieval—this is essential for delegation workflow
 - **Confirmation**: If you're uncertain, ask the human for clarification rather than guessing
+- **Status Signaling**: Use `stuck` and `review` status to communicate with main agent—this is your primary coordination mechanism
 
 ---
 

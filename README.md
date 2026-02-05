@@ -77,6 +77,8 @@ tasks delete 1
 
 Tasks can have the following statuses:
 
+#### Standard Statuses
+
 - **pending** (○) - Task not yet started
 - **in_progress** (◐) - Currently working on the task
 - **completed** (✓) - Task finished successfully
@@ -84,6 +86,52 @@ Tasks can have the following statuses:
 - **archived** (✖) - Task is old/inactive
 
 **Note:** Cancelled and completed tasks are not considered overdue, even if they have past due dates.
+
+#### Agent Communication Statuses
+
+When working with **agent-based feature development** (main branch agent + delegate worktree agents), use these statuses to coordinate workflows:
+
+- **assigned** (⭐) - Main agent has assigned task to delegate for implementation in a worktree
+  - Signals: "This task is now actively being worked on by a delegate agent"
+  - Used by: Main agent when creating a worktree and assigning work
+  - Next states: `stuck` (blocker), `review` (work complete), or `cancelled` (abort)
+
+- **stuck** (⛔) - Delegate agent is blocked and requires intervention
+  - Signals: "I cannot proceed; human/main agent intervention required"
+  - Examples: Environment setup failure, missing dependencies, permissions issues, unclear requirements
+  - Used by: Delegate agent when encountering insurmountable blocker
+  - Next states: `assigned` (blocker resolved), `cancelled` (unresolvable)
+
+- **review** (🔍) - Delegate work complete and ready for review before integration
+  - Signals: "Implementation done, tests pass, quality gates pass—ready for human/main agent review"
+  - Precondition: All code committed, linting passes, tests pass, security scan passes
+  - Used by: Delegate agent when feature branch is ready for code review
+  - Next states: `integrate` (approved), `assigned` (feedback to iterate), or `stuck` (blocker found)
+
+- **integrate** (✅) - Approved by reviewer, ready to merge to main branch
+  - Signals: "This feature is approved and ready for merge to main—request human execution of integration"
+  - Precondition: Feature branch has passed all quality gates; main agent has approved
+  - Used by: Main agent after approving delegate work
+  - Next states: `completed` (after human merges, updates version, installs package)
+  - Note: Delegate agents cannot mark as `integrate`—only main agent can authorize merge
+
+**Status Lifecycle Diagram**:
+```
+pending
+  ↓
+assigned (main agent assigns to delegate)
+  ├─→ stuck (blocker encountered)
+  │     └─→ assigned (blocker resolved, retry)
+  │     └─→ cancelled (blocker unresolvable)
+  │
+  ├─→ review (delegate work ready for review)
+  │     ├─→ assigned (feedback from review, iterate)
+  │     ├─→ stuck (review found showstoppers)
+  │     └─→ integrate (approved, ready to merge)
+  │
+  └─→ integrate (main agent approved)
+        └─→ completed (merged to main, installed, verified)
+```
 
 ### Commands Reference
 

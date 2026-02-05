@@ -15,6 +15,35 @@ class TestTaskStatus:
         assert TaskStatus.COMPLETED.value == "completed"
         assert TaskStatus.ARCHIVED.value == "archived"
 
+    def test_agent_communication_statuses_exist(self):
+        """Test that agent communication statuses are defined."""
+        assert TaskStatus.ASSIGNED.value == "assigned"
+        assert TaskStatus.STUCK.value == "stuck"
+        assert TaskStatus.REVIEW.value == "review"
+        assert TaskStatus.INTEGRATE.value == "integrate"
+
+    def test_can_create_task_with_agent_statuses(self):
+        """Verify tasks can be created with new agent communication status values."""
+        # Test assigned status
+        task_assigned = Task(title="Test", status=TaskStatus.ASSIGNED)
+        assert task_assigned.status == TaskStatus.ASSIGNED
+        assert task_assigned.status.value == "assigned"
+
+        # Test stuck status
+        task_stuck = Task(title="Test", status=TaskStatus.STUCK)
+        assert task_stuck.status == TaskStatus.STUCK
+        assert task_stuck.status.value == "stuck"
+
+        # Test review status
+        task_review = Task(title="Test", status=TaskStatus.REVIEW)
+        assert task_review.status == TaskStatus.REVIEW
+        assert task_review.status.value == "review"
+
+        # Test integrate status
+        task_integrate = Task(title="Test", status=TaskStatus.INTEGRATE)
+        assert task_integrate.status == TaskStatus.INTEGRATE
+        assert task_integrate.status.value == "integrate"
+
 
 class TestPriority:
     """Tests for Priority enumeration."""

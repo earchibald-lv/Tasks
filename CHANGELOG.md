@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-02-04
+
+### Added
+
+- **Agent Communication Status System** (#11):
+  - New status: `assigned` (⭐) - Main agent assigns work to delegate
+  - New status: `stuck` (⛔) - Delegate blocked, needs intervention
+  - New status: `review` (🔍) - Delegate work ready for review
+  - New status: `integrate` (✅) - Approved, ready to merge to main
+  - Enables multi-agent feature development workflows
+  - Main and delegate agents can now coordinate via task status signals
+  - Clear communication protocol for worktree-based development
+  - Prevents unauthorized merges by restricting delegate agent permissions
+
+### Changed
+
+- Updated README.md with new status lifecycle documentation and workflow diagram
+- Enhanced AGENT_GUIDANCE.md with status signaling instructions and usage examples
+- Updated copilot-instructions.md with delegate agent restrictions and status signaling rules
+- Updated CLI help text to show all available statuses (add, update commands)
+
 ## [0.8.3] - 2026-02-04
 
 ### Changed

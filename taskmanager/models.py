@@ -19,6 +19,12 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"  # Abandoned/no longer needed
     ARCHIVED = "archived"  # Old/inactive
 
+    # Agent communication statuses (for multi-agent workflows)
+    ASSIGNED = "assigned"  # Main agent assigned work to delegate
+    STUCK = "stuck"  # Delegate blocked, needs intervention
+    REVIEW = "review"  # Delegate work ready for review before integration
+    INTEGRATE = "integrate"  # Approved, ready to merge to main
+
 
 class Priority(str, Enum):
     """Priority level for task importance and urgency."""
