@@ -22,22 +22,24 @@ A dual-interface task management system with a beautiful CLI and an AI-powered M
 ## Installation
 
 ### Prerequisites
-- Python 3.12 or 3.13
+- **Python 3.13 or greater** (required for sqlite3 extension loading support)
+  - Python 3.12 and earlier lack `enable_load_extension` support, needed for semantic search
 - pipx (recommended) or pip
 
 ### Install CLI & MCP Server
 
 ```bash
-# Install in editable mode for development
-pipx install -e .
+# Install with Python 3.13 (REQUIRED - do not omit --python)
+pipx install -e . --python python3.13
 
-# Or install from source
-pipx install .
+# Or in editable mode for development
+pipx install --force -e . --python python3.13
+
+# Standard pip installation (if pipx unavailable)
+pip install -e .
 ```
 
-This installs two commands:
-- `tasks` - CLI interface
-- `tasks-mcp` - MCP server for AI agents
+**Important**: Always specify `--python python3.13` with pipx to ensure the correct Python version is used.
 
 ### Verify Installation
 

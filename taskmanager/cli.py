@@ -770,34 +770,43 @@ def cmd_recall(args):
         headers = ["ID", "Score", "Status", "Title"]
         rows = []
 
-        for task_id, score in results:
-            try:
-                task = service.get_task(task_id)
-                status_emoji = {
-                    "pending": "⭕",
-                    "in_progress": "🔄",
-                    "completed": "✅",
-                    "cancelled": "❌",
-                    "archived": "📦",
-                    "assigned": "⭐",
-                    "stuck": "⛔",
-                    "review": "🔍",
-                    "integrate": "✅",
-                }.get(task.status.value, "❓")
+        # Normalize scores for visualization (relative to max score in results)
+        if results:
+            max_score = max(score for _, score in results)
+            if max_score == 0:
+                max_score = 1  # Prevent division by zero
 
-                # Visual score bar
-                score_bar = "█" * int(score * 10) + "░" * (10 - int(score * 10))
+            for task_id, score in results:
+                try:
+                    task = service.get_task(task_id)
+                    status_emoji = {
+                        "pending": "⭕",
+                        "in_progress": "🔄",
+                        "completed": "✅",
+                        "cancelled": "❌",
+                        "archived": "📦",
+                        "assigned": "⭐",
+                        "stuck": "⛔",
+                        "review": "🔍",
+                        "integrate": "✅",
+                    }.get(task.status.value, "❓")
 
-                rows.append(
-                    [
-                        f"#{task_id}",
-                        f"[{score_bar}]",
-                        f"{status_emoji} {task.status.value}",
-                        task.title[:50] + ("..." if len(task.title) > 50 else ""),
-                    ]
-                )
-            except ValueError:
-                continue
+                    # Normalize score to 0-1 range relative to best match
+                    normalized_score = score / max_score
+                    # Create visual bar (0-10 filled blocks)
+                    filled_blocks = int(normalized_score * 10)
+                    score_bar = "█" * filled_blocks + "░" * (10 - filled_blocks)
+
+                    rows.append(
+                        [
+                            f"#{task_id}",
+                            f"[{score_bar}]",
+                            f"{status_emoji} {task.status.value}",
+                            task.title[:50] + ("..." if len(task.title) > 50 else ""),
+                        ]
+                    )
+                except ValueError:
+                    continue
 
         print_table(headers, rows)
 
@@ -2254,7 +2263,7 @@ def main():
         "--threshold",
         type=float,
         default=0.0,
-        help="Similarity threshold 0-1 (default: 0.0 - return top matches)",
+        help="Similarity threshold 0-1 (default: 0.0 - filters to 80%% of top match score)",
     )
     recall_parser.set_defaults(func=cmd_recall)
 

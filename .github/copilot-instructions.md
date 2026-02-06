@@ -674,7 +674,7 @@ database_url = "sqlite:///{config}/taskmanager/tasks-stale-profile.db"
 1. Add to `pyproject.toml` → `dependencies` or `[project.optional-dependencies]`
 2. Justify in commit message (why needed, what it provides)
 3. Update requirements if lockfile used
-4. Test installation: `pipx install --force -e .`
+4. **IMPORTANT**: Test installation with Python 3.13: `pipx install --force -e . --python python3.13`
 
 ### Removing Dependencies
 

@@ -258,7 +258,8 @@ class SemanticSearchService:
         Args:
             query: The search query text
             limit: Maximum number of results to return
-            threshold: Minimum similarity score (0-1, higher is more similar). Default 0.0 returns top matches.
+            threshold: Minimum similarity score (0-1, higher is more similar).
+                      Default 0.0 returns top matches but filters outliers (>20% drop-off from best).
 
         Returns:
             List of (task_id, similarity) tuples, sorted by similarity (highest first)
@@ -285,12 +286,25 @@ class SemanticSearchService:
             )
 
             results = []
+            best_similarity = None
             for row in cursor.fetchall():
                 task_id, distance = row
                 # Convert distance to similarity score (lower distance = higher similarity)
                 # vec0 uses L2 distance, we normalize it
                 similarity = 1.0 / (1.0 + distance)
-                if similarity >= threshold:
+                
+                # Track best similarity for automatic filtering
+                if best_similarity is None:
+                    best_similarity = similarity
+                
+                # Apply explicit threshold if given, otherwise filter to 80% of best score
+                if threshold > 0:
+                    passes_threshold = similarity >= threshold
+                else:
+                    # Default behavior: include if within 80% of best match
+                    passes_threshold = similarity >= (best_similarity * 0.80)
+                
+                if passes_threshold:
                     results.append((task_id, similarity))
 
             return results
