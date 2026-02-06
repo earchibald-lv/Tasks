@@ -20,6 +20,7 @@ from taskmanager.service import TaskService
 # Initialize FastMCP server
 mcp = FastMCP("Task Manager", version="0.1.0")
 
+
 # Dynamic profile resolution function
 def get_default_profile() -> str:
     """Get default profile from environment variable or use "default".
@@ -31,6 +32,7 @@ def get_default_profile() -> str:
         str: Profile name ("default", "dev", or "test")
     """
     return os.environ.get("TASKMANAGER_PROFILE", "default")
+
 
 # Initialize all profile databases on startup
 for profile in ["default", "dev", "test"]:
@@ -59,23 +61,23 @@ def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
 
     MCP tools use simplified terminology for standard workflow states:
     - "todo" → PENDING
-    - "in_progress" → IN_PROGRESS  
+    - "in_progress" → IN_PROGRESS
     - "done" → COMPLETED
     - "cancelled" → CANCELLED (direct mapping)
     - "archived" → ARCHIVED (direct mapping)
-    
+
     Agent communication statuses (for multi-agent workflows):
     - "assigned" → ASSIGNED (direct mapping)
     - "stuck" → STUCK (direct mapping)
     - "review" → REVIEW (direct mapping)
     - "integrate" → INTEGRATE (direct mapping)
-    
+
     Args:
         mcp_status: Status string from MCP tool
-        
+
     Returns:
         TaskStatus: Corresponding enum value
-        
+
     Raises:
         ValueError: If status string is invalid
     """
@@ -94,33 +96,33 @@ def mcp_status_to_task_status(mcp_status: str) -> TaskStatus:
         "review": TaskStatus.REVIEW,
         "integrate": TaskStatus.INTEGRATE,
     }
-    
+
     if mcp_status not in status_map:
         valid = ", ".join(sorted(status_map.keys()))
         raise ValueError(f"Invalid status '{mcp_status}'. Valid values: {valid}")
-    
+
     return status_map[mcp_status]
 
 
 def task_status_to_mcp_status(task_status: TaskStatus) -> str:
     """Convert TaskStatus enum to MCP-friendly status string.
-    
+
     Returns simplified terminology for standard workflow states:
     - PENDING → "todo"
     - IN_PROGRESS → "in_progress"
     - COMPLETED → "done"
     - CANCELLED → "cancelled"
     - ARCHIVED → "archived"
-    
+
     For agent communication statuses, returns direct mapping:
     - ASSIGNED → "assigned"
     - STUCK → "stuck"
     - REVIEW → "review"
     - INTEGRATE → "integrate"
-    
+
     Args:
         task_status: TaskStatus enum value
-        
+
     Returns:
         str: MCP-friendly status string
     """
@@ -155,11 +157,11 @@ def format_task_markdown(task: Task) -> str:
     if task.jira_issues:
         from taskmanager.config import get_settings
         from taskmanager.service import TaskService
-        
+
         settings = get_settings()
         jira_url = settings.atlassian.jira_url if settings.atlassian else None
         jira_links = TaskService.format_jira_links(task.jira_issues, jira_url)
-        
+
         if jira_links:
             lines.append("")
             lines.append("**JIRA Issues:**")
@@ -188,13 +190,17 @@ def format_task_markdown(task: Task) -> str:
 
     # Show workspace information if it exists
     if task.workspace_path:
-        lines.extend([
-            "",
-            "---",
-            "**🗂️ Workspace Available**",
-            f"📁 Path: `{task.workspace_path}`",
-            "💡 Use `get_workspace_path({})` to get the path for file operations".format(task.id)
-        ])
+        lines.extend(
+            [
+                "",
+                "---",
+                "**🗂️ Workspace Available**",
+                f"📁 Path: `{task.workspace_path}`",
+                "💡 Use `get_workspace_path({})` to get the path for file operations".format(
+                    task.id
+                ),
+            ]
+        )
 
     return "\n".join(lines)
 
@@ -213,24 +219,40 @@ class TaskCreationForm(BaseModel):
         default="medium", description="Task priority"
     )
     due_date: str = Field(default="", description="Due date in YYYY-MM-DD format (optional)")
-    jira_issues: str = Field(default="", description="JIRA issue keys as CSV list (e.g., 'SRE-1234,DEVOPS-5678'). No spaces around commas. Multiple issues can be linked to one task. (optional)")
-    tags: str = Field(default="", description="Tags for categorization, comma-separated (e.g., backend,api,bug-fix) (optional)")
+    jira_issues: str = Field(
+        default="",
+        description="JIRA issue keys as CSV list (e.g., 'SRE-1234,DEVOPS-5678'). No spaces around commas. Multiple issues can be linked to one task. (optional)",
+    )
+    tags: str = Field(
+        default="",
+        description="Tags for categorization, comma-separated (e.g., backend,api,bug-fix) (optional)",
+    )
 
 
 class TaskUpdateForm(BaseModel):
     """Interactive form for updating an existing task."""
 
     title: str = Field(default="", description="New task title (leave empty to keep current)")
-    description: str = Field(default="", description="New description (leave empty to keep current)")
+    description: str = Field(
+        default="", description="New description (leave empty to keep current)"
+    )
     priority: str = Field(
         default="", description="New priority: low, medium, high (leave empty to keep current)"
     )
     status: str = Field(
-        default="", description="New status: todo, in_progress, done, cancelled, archived, assigned, stuck, review, integrate (leave empty to keep current)"
+        default="",
+        description="New status: todo, in_progress, done, cancelled, archived, assigned, stuck, review, integrate (leave empty to keep current)",
     )
-    due_date: str = Field(default="", description="New due date YYYY-MM-DD (leave empty to keep current)")
-    jira_issues: str = Field(default="", description="New JIRA issues as CSV list (e.g., 'SRE-1234,DEVOPS-5678'). No spaces. Leave empty to keep current. (optional)")
-    tags: str = Field(default="", description="New tags (comma-separated) (leave empty to keep current)")
+    due_date: str = Field(
+        default="", description="New due date YYYY-MM-DD (leave empty to keep current)"
+    )
+    jira_issues: str = Field(
+        default="",
+        description="New JIRA issues as CSV list (e.g., 'SRE-1234,DEVOPS-5678'). No spaces. Leave empty to keep current. (optional)",
+    )
+    tags: str = Field(
+        default="", description="New tags (comma-separated) (leave empty to keep current)"
+    )
 
 
 class TaskDeletionConfirmation(BaseModel):
@@ -347,7 +369,9 @@ async def update_task_interactive(
                 return f"❌ Invalid status: {updates.status}. Use: pending, in_progress, completed, cancelled, archived, assigned, stuck, review, integrate"
         if updates.due_date and updates.due_date.strip():
             try:
-                update_dict["due_date"] = datetime.strptime(updates.due_date.strip(), "%Y-%m-%d").date()
+                update_dict["due_date"] = datetime.strptime(
+                    updates.due_date.strip(), "%Y-%m-%d"
+                ).date()
             except ValueError:
                 return f"❌ Invalid date format: {updates.due_date}. Use YYYY-MM-DD"
         if updates.jira_issues and updates.jira_issues.strip():
@@ -421,7 +445,17 @@ def create_task(
     title: str,
     description: str | None = None,
     priority: Literal["low", "medium", "high", "urgent"] = "medium",
-    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate"] = "todo",
+    status: Literal[
+        "todo",
+        "in_progress",
+        "done",
+        "cancelled",
+        "archived",
+        "assigned",
+        "stuck",
+        "review",
+        "integrate",
+    ] = "todo",
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
@@ -473,7 +507,18 @@ def create_task(
 
 @mcp.tool()
 def list_tasks(
-    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate", "all"] = "all",
+    status: Literal[
+        "todo",
+        "in_progress",
+        "done",
+        "cancelled",
+        "archived",
+        "assigned",
+        "stuck",
+        "review",
+        "integrate",
+        "all",
+    ] = "all",
     priority: Literal["low", "medium", "high", "urgent", "all"] = "all",
     tag: str | None = None,
     overdue_only: bool = False,
@@ -548,9 +593,7 @@ def list_tasks(
                 ]
                 due_info = f" | Due: {task.due_date}" + (" ⚠️ OVERDUE" if is_overdue else "")
 
-            lines.append(
-                f"{status_emoji} {priority_emoji} **#{task.id}** {task.title}{due_info}"
-            )
+            lines.append(f"{status_emoji} {priority_emoji} **#{task.id}** {task.title}{due_info}")
 
         return "\n".join(lines)
     except ValueError as e:
@@ -586,7 +629,18 @@ def update_task(
     title: str | None = None,
     description: str | None = None,
     priority: Literal["low", "medium", "high", "urgent"] | None = None,
-    status: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate"] | None = None,
+    status: Literal[
+        "todo",
+        "in_progress",
+        "done",
+        "cancelled",
+        "archived",
+        "assigned",
+        "stuck",
+        "review",
+        "integrate",
+    ]
+    | None = None,
     due_date: str | None = None,
     tags: list[str] | None = None,
     jira_issues: str | None = None,
@@ -710,7 +764,7 @@ def get_attachment_content(
     Fetches the content of a file attached to a task. Useful for reading
     prompt files, documents, and other attachments directly within your
     agent workflow.
-    
+
     Supports dual-filename matching:
     1. Exact match on original filename (e.g., 'TASK_59_PROMPT.md')
     2. Exact match on storage filename (e.g., '20260204_181256_TASK_59_PROMPT.md')
@@ -736,7 +790,7 @@ def get_attachment_content(
 
         # Try to decode as text for display
         try:
-            text_content = attachment.file_data.decode('utf-8')
+            text_content = attachment.file_data.decode("utf-8")
             return text_content
         except UnicodeDecodeError:
             return f"❌ Could not decode attachment as UTF-8. File appears to be binary ({len(attachment.file_data)} bytes)"
@@ -787,7 +841,7 @@ def add_attachment_from_content(
         attachment = service.add_attachment_from_content(
             task_id=task_id,
             filename=filename,
-            content=content  # Service handles str->bytes conversion
+            content=content,  # Service handles str->bytes conversion
         )
 
         return (
@@ -830,17 +884,14 @@ def create_workspace(
     """
     try:
         service = get_service(profile)
-        metadata = service.create_workspace(
-            task_id=task_id,
-            initialize_git=initialize_git
-        )
+        metadata = service.create_workspace(task_id=task_id, initialize_git=initialize_git)
 
         git_status = "✓ Git initialized" if metadata["git_initialized"] else "✗ Git not initialized"
 
         return f"""✅ **Created workspace for task #{task_id}**
 
-**Path:** `{metadata['workspace_path']}`
-**Created:** {metadata['created_at']}
+**Path:** `{metadata["workspace_path"]}`
+**Created:** {metadata["created_at"]}
 **Git:** {git_status}
 
 **Directory Structure:**
@@ -857,8 +908,10 @@ You can now use this workspace for task-specific file operations."""
 
 
 @mcp.tool()
-def get_workspace_info(task_id: int,
-    profile: Literal["default", "dev", "test"] = None,) -> str:
+def get_workspace_info(
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
     """Get information about a task's workspace.
 
     Returns workspace metadata including path, creation time, and git status.
@@ -878,8 +931,8 @@ def get_workspace_info(task_id: int,
 
         return f"""📁 **Workspace for Task #{task_id}**
 
-**Path:** `{metadata['workspace_path']}`
-**Created:** {metadata['created_at']}
+**Path:** `{metadata["workspace_path"]}`
+**Created:** {metadata["created_at"]}
 **Last Accessed:** {last_accessed}
 **Git Initialized:** {git_status}
 
@@ -891,8 +944,10 @@ This workspace provides a sandboxed environment for task-specific operations."""
 
 
 @mcp.tool()
-def get_workspace_path(task_id: int,
-    profile: Literal["default", "dev", "test"] = None,) -> str:
+def get_workspace_path(
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
     """Get the filesystem path to a task's workspace.
 
     Returns the absolute path that can be used for file operations.
@@ -916,8 +971,11 @@ def get_workspace_path(task_id: int,
 
 
 @mcp.tool()
-def ensure_workspace(task_id: int, initialize_git: bool = True,
-    profile: Literal["default", "dev", "test"] = None,) -> str:
+def ensure_workspace(
+    task_id: int,
+    initialize_git: bool = True,
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
     """Ensure a workspace exists for a task, creating it if necessary.
 
     This is a convenience tool that checks if a workspace exists and creates
@@ -937,16 +995,13 @@ def ensure_workspace(task_id: int, initialize_git: bool = True,
             return f"✓ Workspace already exists for task #{task_id}\n\n📁 Path: `{existing_path}`"
 
         # Create new workspace
-        metadata = service.create_workspace(
-            task_id=task_id,
-            initialize_git=initialize_git
-        )
+        metadata = service.create_workspace(task_id=task_id, initialize_git=initialize_git)
 
         git_status = "✓ Git initialized" if metadata["git_initialized"] else "✗ Git not initialized"
 
         return f"""✅ **Created workspace for task #{task_id}**
 
-📁 Path: `{metadata['workspace_path']}`
+📁 Path: `{metadata["workspace_path"]}`
 {git_status}
 
 **Directory Structure:**
@@ -961,8 +1016,10 @@ def ensure_workspace(task_id: int, initialize_git: bool = True,
 
 
 @mcp.tool()
-def delete_workspace(task_id: int,
-    profile: Literal["default", "dev", "test"] = None,) -> str:
+def delete_workspace(
+    task_id: int,
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
     """Delete a task's workspace and all its contents.
 
     ⚠️ WARNING: This permanently deletes all files in the workspace directory.
@@ -999,7 +1056,8 @@ def search_workspace(
     file_pattern: str = "*",
     case_sensitive: bool = False,
     max_results: int = 50,
-    profile: Literal["default", "dev", "test"] = None,) -> str:
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
     """Search for content within a task's workspace.
 
     Uses fast text search to find files and content matching your query.
@@ -1028,10 +1086,12 @@ def search_workspace(
         # Build ripgrep command
         rg_args = [
             "rg",
-            "--color", "never",
+            "--color",
+            "never",
             "--line-number",
             "--heading",
-            "--max-count", str(max_results),
+            "--max-count",
+            str(max_results),
         ]
 
         if not case_sensitive:
@@ -1042,22 +1102,23 @@ def search_workspace(
             rg_args.extend(["--glob", file_pattern])
 
         # Exclude git and tmp directories
-        rg_args.extend([
-            "--glob", "!.git",
-            "--glob", "!tmp/*",
-            "--glob", "!*.pyc",
-            "--glob", "!__pycache__",
-        ])
+        rg_args.extend(
+            [
+                "--glob",
+                "!.git",
+                "--glob",
+                "!tmp/*",
+                "--glob",
+                "!*.pyc",
+                "--glob",
+                "!__pycache__",
+            ]
+        )
 
         rg_args.extend([query, str(workspace_path)])
 
         # Execute search
-        result = subprocess.run(
-            rg_args,
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
+        result = subprocess.run(rg_args, capture_output=True, text=True, timeout=10)
 
         # Handle no results
         if result.returncode == 1:
@@ -1074,7 +1135,9 @@ def search_workspace(
             return f"🔍 No matches found in workspace for task #{task_id}\n\n**Query:** `{query}`\n**Pattern:** `{file_pattern}`"
 
         # Count matches and files
-        file_count = len([line for line in output_lines if line and not line.startswith(" ") and ":" in line])
+        file_count = len(
+            [line for line in output_lines if line and not line.startswith(" ") and ":" in line]
+        )
         match_count = len([line for line in output_lines if line.startswith(" ")])
 
         result_text = f"""🔍 **Search Results for Task #{task_id}**
@@ -1094,9 +1157,9 @@ def search_workspace(
         return result_text
 
     except subprocess.TimeoutExpired:
-        return f"❌ Search timed out after 10 seconds"
+        return "❌ Search timed out after 10 seconds"
     except FileNotFoundError:
-        return f"❌ Search tool 'ripgrep' not found. Install with: brew install ripgrep"
+        return "❌ Search tool 'ripgrep' not found. Install with: brew install ripgrep"
     except ValueError as e:
         return f"❌ Error: {str(e)}"
     except Exception as e:
@@ -1110,8 +1173,20 @@ def search_all_tasks(
     search_task_fields: bool = True,
     file_pattern: str = "*",
     case_sensitive: bool = False,
-    status_filter: Literal["todo", "in_progress", "done", "cancelled", "archived", "assigned", "stuck", "review", "integrate", "all"] = "all",
-    profile: Literal["default", "dev", "test"] = None,) -> str:
+    status_filter: Literal[
+        "todo",
+        "in_progress",
+        "done",
+        "cancelled",
+        "archived",
+        "assigned",
+        "stuck",
+        "review",
+        "integrate",
+        "all",
+    ] = "all",
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
     """Search across all tasks and their workspaces.
 
     Performs a comprehensive search across:
@@ -1162,7 +1237,9 @@ def search_all_tasks(
 
                 # Check description
                 if task.description:
-                    desc_check = task.description.lower() if not case_sensitive else task.description
+                    desc_check = (
+                        task.description.lower() if not case_sensitive else task.description
+                    )
                     if query_lower in desc_check:
                         matches.append("description")
 
@@ -1174,15 +1251,14 @@ def search_all_tasks(
 
                 # Check JIRA issues
                 if task.jira_issues:
-                    jira_check = task.jira_issues.lower() if not case_sensitive else task.jira_issues
+                    jira_check = (
+                        task.jira_issues.lower() if not case_sensitive else task.jira_issues
+                    )
                     if query_lower in jira_check:
                         matches.append("JIRA")
 
                 if matches:
-                    task_matches.append({
-                        "task": task,
-                        "fields": matches
-                    })
+                    task_matches.append({"task": task, "fields": matches})
 
         # Search workspaces
         if search_workspaces:
@@ -1198,9 +1274,11 @@ def search_all_tasks(
                     # Build ripgrep command
                     rg_args = [
                         "rg",
-                        "--color", "never",
+                        "--color",
+                        "never",
                         "--files-with-matches",
-                        "--max-count", "5",
+                        "--max-count",
+                        "5",
                     ]
 
                     if not case_sensitive:
@@ -1209,30 +1287,30 @@ def search_all_tasks(
                     if file_pattern != "*":
                         rg_args.extend(["--glob", file_pattern])
 
-                    rg_args.extend([
-                        "--glob", "!.git",
-                        "--glob", "!tmp/*",
-                        "--glob", "!*.pyc",
-                        "--glob", "!__pycache__",
-                    ])
+                    rg_args.extend(
+                        [
+                            "--glob",
+                            "!.git",
+                            "--glob",
+                            "!tmp/*",
+                            "--glob",
+                            "!*.pyc",
+                            "--glob",
+                            "!__pycache__",
+                        ]
+                    )
 
                     rg_args.extend([query, str(workspace_path)])
 
-                    result = subprocess.run(
-                        rg_args,
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
+                    result = subprocess.run(rg_args, capture_output=True, text=True, timeout=5)
 
                     if result.returncode == 0:
                         matched_files = result.stdout.strip().split("\n")
-                        matched_files = [f.replace(str(workspace_path) + "/", "") for f in matched_files if f]
+                        matched_files = [
+                            f.replace(str(workspace_path) + "/", "") for f in matched_files if f
+                        ]
 
-                        workspace_matches.append({
-                            "task": task,
-                            "files": matched_files
-                        })
+                        workspace_matches.append({"task": task, "files": matched_files})
 
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     continue
@@ -1251,15 +1329,12 @@ def search_all_tasks(
             "",
             f"**Searched:** {total} task(s)",
             f"**Found:** {len(task_matches)} task metadata match(es), {len(workspace_matches)} workspace match(es)",
-            ""
+            "",
         ]
 
         # Show task metadata matches
         if task_matches:
-            lines.extend([
-                "## 📋 Task Metadata Matches",
-                ""
-            ])
+            lines.extend(["## 📋 Task Metadata Matches", ""])
 
             for match in task_matches[:20]:
                 task = match["task"]
@@ -1280,15 +1355,12 @@ def search_all_tasks(
                 lines.append(f"{status_emoji} **Task #{task.id}**: {task.title}")
                 lines.append(f"   Matched in: {fields}")
                 if task.workspace_path:
-                    lines.append(f"   📁 Has workspace")
+                    lines.append("   📁 Has workspace")
                 lines.append("")
 
         # Show workspace matches
         if workspace_matches:
-            lines.extend([
-                "## 📂 Workspace Content Matches",
-                ""
-            ])
+            lines.extend(["## 📂 Workspace Content Matches", ""])
 
             for match in workspace_matches[:20]:
                 task = match["task"]
@@ -1314,16 +1386,18 @@ def search_all_tasks(
                     lines.append(f"      ... and {len(files) - 5} more")
                 lines.append("")
 
-        lines.extend([
-            "---",
-            f"💡 Use `get_task(task_id)` to view task details",
-            f"💡 Use `search_workspace(task_id, '{query}')` to see specific matches"
-        ])
+        lines.extend(
+            [
+                "---",
+                "💡 Use `get_task(task_id)` to view task details",
+                f"💡 Use `search_workspace(task_id, '{query}')` to see specific matches",
+            ]
+        )
 
         return "\n".join(lines)
 
     except FileNotFoundError:
-        return f"❌ Search tool 'ripgrep' not found. Install with: brew install ripgrep"
+        return "❌ Search tool 'ripgrep' not found. Install with: brew install ripgrep"
     except ValueError as e:
         return f"❌ Error: {str(e)}"
     except Exception as e:
@@ -1335,7 +1409,8 @@ def list_workspace_files(
     task_id: int,
     subdirectory: str = "",
     file_pattern: str = "*",
-    profile: Literal["default", "dev", "test"] = None,) -> str:
+    profile: Literal["default", "dev", "test"] = None,
+) -> str:
     """List files in a task's workspace.
 
     Browse the contents of a workspace directory to see what files are available.
@@ -1388,7 +1463,7 @@ def list_workspace_files(
             f"**Found:** {len(files)} file(s)",
             "",
             "---",
-            ""
+            "",
         ]
 
         for f in files[:50]:  # Limit to 50 files
@@ -1404,7 +1479,9 @@ def list_workspace_files(
             else:
                 size_str = f"{size / (1024 * 1024):.1f}MB"
 
-            lines.append(f"📄 `{relative_path}` - {size_str} - {modified.strftime('%Y-%m-%d %H:%M')}")
+            lines.append(
+                f"📄 `{relative_path}` - {size_str} - {modified.strftime('%Y-%m-%d %H:%M')}"
+            )
 
         if len(files) > 50:
             lines.append(f"\n... and {len(files) - 50} more files")
@@ -1457,7 +1534,7 @@ def get_status_enum() -> str:
         "",
         "The CLI uses the full status names:",
         "```bash",
-        "tasks add \"My task\" --status pending",
+        'tasks add "My task" --status pending',
         "tasks update 1 --status in_progress",
         "tasks update 1 --status completed",
         "```",
@@ -1605,7 +1682,7 @@ def list_workspaces() -> str:
         "📂 **Task Workspaces**",
         "",
         f"Found {len(tasks_with_workspaces)} task(s) with workspaces:",
-        ""
+        "",
     ]
 
     for task in tasks_with_workspaces:
@@ -1625,10 +1702,7 @@ def list_workspaces() -> str:
         lines.append(f"   📁 `{task.workspace_path}`")
         lines.append("")
 
-    lines.extend([
-        "---",
-        "💡 Use `get_workspace_path(task_id)` to get a path for file operations"
-    ])
+    lines.extend(["---", "💡 Use `get_workspace_path(task_id)` to get a path for file operations"])
 
     return "\n".join(lines)
 
@@ -1725,15 +1799,13 @@ def new_task_prompt(task_type: str = "feature") -> str:
         },
     }
 
-    template_info = type_templates.get(
-        task_type, type_templates["feature"]
-    )
+    template_info = type_templates.get(task_type, type_templates["feature"])
 
     return f"""I'll help you create a new {task_type} task. Let's gather the details:
 
 **1. Task Title** (brief and actionable)
-   Example: {template_info['title']}
-   Common patterns: {template_info['example']}
+   Example: {template_info["title"]}
+   Common patterns: {template_info["example"]}
 
 **2. Description** (what needs to be done)
    - What's the goal?
@@ -1981,9 +2053,7 @@ def task_report_prompt(
         "month": ("this month", "last month", "monthly"),
     }
 
-    current, previous, adj = period_context.get(
-        period, period_context["week"]
-    )
+    current, previous, adj = period_context.get(period, period_context["week"])
 
     return f"""📊 **{adj.title()} Task Report**
 
@@ -2029,14 +2099,14 @@ Let's generate your {adj} report!"""
 @mcp.tool()
 def get_current_time(timezone: str = "UTC") -> str:
     """Get current timestamp with timezone information.
-    
+
     Provides agents with accurate time awareness for schedule operations,
     deadline management, and time-sensitive workflows.
-    
+
     Args:
         timezone: Timezone name (e.g., "UTC", "America/New_York", "Europe/London")
                  Defaults to UTC. Use standard IANA timezone names.
-    
+
     Returns:
         JSON string with current time information including:
         - timestamp: ISO 8601 formatted datetime
@@ -2049,9 +2119,9 @@ def get_current_time(timezone: str = "UTC") -> str:
         tz = ZoneInfo(timezone)
     except Exception:
         return f"❌ Invalid timezone: {timezone}\n\nUse IANA timezone names like: UTC, America/New_York, Europe/London, Asia/Tokyo"
-    
+
     now = datetime.now(tz)
-    
+
     result = {
         "timestamp": now.isoformat(),
         "timezone": timezone,
@@ -2060,23 +2130,23 @@ def get_current_time(timezone: str = "UTC") -> str:
         "time": now.strftime("%H:%M:%S"),
         "day_of_week": now.strftime("%A"),
         "is_weekend": now.weekday() >= 5,
-        "formatted": now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
+        "formatted": now.strftime("%A, %B %d, %Y at %I:%M %p %Z"),
     }
-    
+
     lines = [
-        f"🕐 **Current Time**",
-        f"",
+        "🕐 **Current Time**",
+        "",
         f"**{result['formatted']}**",
-        f"",
+        "",
         f"- **Date:** {result['date']}",
         f"- **Time:** {result['time']}",
-        f"- **Day:** {result['day_of_week']}" + (" (Weekend)" if result['is_weekend'] else ""),
+        f"- **Day:** {result['day_of_week']}" + (" (Weekend)" if result["is_weekend"] else ""),
         f"- **Timezone:** {timezone}",
         f"- **Unix Timestamp:** {result['unix_timestamp']}",
-        f"",
-        f"**ISO 8601:** `{result['timestamp']}`"
+        "",
+        f"**ISO 8601:** `{result['timestamp']}`",
     ]
-    
+
     return "\n".join(lines)
 
 
@@ -2085,28 +2155,28 @@ def format_datetime(
     timestamp: str,
     format_string: str = "%Y-%m-%d %H:%M:%S",
     source_timezone: str = "UTC",
-    target_timezone: str = "UTC"
+    target_timezone: str = "UTC",
 ) -> str:
     """Format and convert datetime strings.
-    
+
     Parses datetime strings and reformats them according to specifications.
     Supports timezone conversion.
-    
+
     Args:
         timestamp: Input datetime string (ISO 8601 format recommended)
         format_string: Output format using Python strftime codes
                       Examples: "%Y-%m-%d", "%B %d, %Y", "%I:%M %p"
         source_timezone: Timezone of input timestamp (default: UTC)
         target_timezone: Timezone for output (default: UTC)
-    
+
     Returns:
         Formatted datetime string or error message
     """
     try:
         # Parse the input timestamp
-        if 'T' in timestamp or '+' in timestamp or timestamp.endswith('Z'):
+        if "T" in timestamp or "+" in timestamp or timestamp.endswith("Z"):
             # ISO 8601 format
-            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         else:
             # Try common formats
             for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"]:
@@ -2117,81 +2187,77 @@ def format_datetime(
                     continue
             else:
                 raise ValueError("Could not parse timestamp")
-        
+
         # Add source timezone if naive
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=ZoneInfo(source_timezone))
-        
+
         # Convert to target timezone
         if target_timezone != source_timezone:
             dt = dt.astimezone(ZoneInfo(target_timezone))
-        
+
         formatted = dt.strftime(format_string)
-        
+
         return f"✓ Formatted: **{formatted}**\n\nTimezone: {target_timezone}"
-        
+
     except Exception as e:
         return f"❌ Error formatting datetime: {str(e)}\n\nTip: Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS) for best results"
 
 
 @mcp.tool()
-def calculate_time_delta(
-    start: str,
-    end: str = "",
-    timezone: str = "UTC"
-) -> str:
+def calculate_time_delta(start: str, end: str = "", timezone: str = "UTC") -> str:
     """Calculate time difference between two dates/times.
-    
+
     Computes duration between two timestamps, or from a timestamp to now.
     Useful for deadline calculations, time tracking, and schedule planning.
-    
+
     Args:
         start: Start datetime (ISO 8601 or YYYY-MM-DD format)
-        end: End datetime (ISO 8601 or YYYY-MM-DD format). 
+        end: End datetime (ISO 8601 or YYYY-MM-DD format).
              If empty, uses current time.
         timezone: Timezone for calculations (default: UTC)
-    
+
     Returns:
         Human-readable time difference with breakdown
     """
     try:
         tz = ZoneInfo(timezone)
-        
+
         # Parse start time
-        if 'T' in start or '+' in start or start.endswith('Z'):
-            start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+        if "T" in start or "+" in start or start.endswith("Z"):
+            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
         else:
             start_dt = datetime.fromisoformat(start + "T00:00:00")
-        
+
         if start_dt.tzinfo is None:
             start_dt = start_dt.replace(tzinfo=tz)
-        
+
         # Parse or get end time
         if end:
-            if 'T' in end or '+' in end or end.endswith('Z'):
-                end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+            if "T" in end or "+" in end or end.endswith("Z"):
+                end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
             else:
                 end_dt = datetime.fromisoformat(end + "T00:00:00")
-            
+
             if end_dt.tzinfo is None:
                 end_dt = end_dt.replace(tzinfo=tz)
         else:
             end_dt = datetime.now(tz)
             end = "now"
-        
+
         # Calculate delta
         delta = end_dt - start_dt
-        
+
         # Break down the time difference
         total_seconds = int(delta.total_seconds())
         is_past = total_seconds < 0
         total_seconds = abs(total_seconds)
-        
+
         days = total_seconds // 86400
         hours = (total_seconds % 86400) // 3600
         minutes = (total_seconds % 3600) // 60
         seconds = total_seconds % 60
-        
+
         # Build human-readable output
         parts = []
         if days > 0:
@@ -2202,29 +2268,209 @@ def calculate_time_delta(
             parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
         if seconds > 0 and not parts:  # Only show seconds if no larger units
             parts.append(f"{seconds} second{'s' if seconds != 1 else ''}")
-        
+
         readable = ", ".join(parts) if parts else "0 seconds"
         direction = "ago" if is_past else "from now"
-        
+
         lines = [
-            f"⏱️ **Time Delta**",
-            f"",
+            "⏱️ **Time Delta**",
+            "",
             f"**{readable}** {direction}",
-            f"",
+            "",
             f"- **Start:** {start_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}",
             f"- **End:** {end if end != 'now' else end_dt.strftime('%Y-%m-%d %H:%M:%S %Z')}",
-            f"",
-            f"**Breakdown:**",
+            "",
+            "**Breakdown:**",
             f"- Days: {days}",
             f"- Hours: {hours}",
             f"- Minutes: {minutes}",
             f"- Total seconds: {total_seconds:,}",
         ]
-        
+
         return "\n".join(lines)
-        
+
     except Exception as e:
         return f"❌ Error calculating time delta: {str(e)}\n\nTip: Use ISO 8601 format (YYYY-MM-DDTHH:MM:SS) or YYYY-MM-DD"
+
+
+# ============================================================================
+# Semantic Search / Episodic Memory Tools
+# ============================================================================
+
+
+@mcp.tool()
+def check_prior_work(
+    query: str,
+    limit: int = 3,
+    profile: Literal["default", "dev", "test"] | None = None,
+) -> str:
+    """Check for existing similar tasks before creating new work.
+
+    Use this tool BEFORE creating a new task to avoid duplicate work.
+    It searches semantically for tasks with similar content or purpose.
+
+    Workflow rule: If a similar task exists:
+    - Update it instead of creating a new one
+    - If the similar task is "STUCK", read its comments to understand why
+
+    Args:
+        query: Description of the work you're about to create
+        limit: Maximum number of similar tasks to return (default: 3)
+        profile: Database profile to use (default, dev, test)
+
+    Returns:
+        JSON list of similar tasks with similarity scores, or message if none found
+    """
+    import json
+
+    try:
+        from taskmanager.services.search import get_semantic_search_service
+
+        effective_profile = profile or get_default_profile()
+        service = get_service(effective_profile)
+        search_service = get_semantic_search_service(effective_profile)
+
+        results = search_service.find_similar(query, threshold=0.15, limit=limit)
+
+        if not results:
+            return json.dumps(
+                {"result": "No similar tasks found. Safe to create new task.", "similar_tasks": []},
+                indent=2,
+            )
+
+        similar_tasks = []
+        for task_id, score in results:
+            try:
+                task = service.get_task(task_id)
+                similar_tasks.append(
+                    {
+                        "task_id": task_id,
+                        "title": task.title,
+                        "status": task.status.value,
+                        "similarity_score": round(score, 3),
+                        "description_preview": (task.description[:200] + "...")
+                        if task.description and len(task.description) > 200
+                        else task.description,
+                        "tags": task.tags,
+                    }
+                )
+            except ValueError:
+                continue
+
+        return json.dumps(
+            {
+                "result": f"Found {len(similar_tasks)} similar task(s). Consider updating existing task instead of creating new.",
+                "similar_tasks": similar_tasks,
+                "recommendation": "If any task matches your intent, update it. If a task is STUCK, check its comments.",
+            },
+            indent=2,
+        )
+
+    except ImportError:
+        return json.dumps(
+            {
+                "error": "Semantic search not available",
+                "hint": "Install with: pip install fastembed sqlite-vec",
+            },
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"error": str(e)}, indent=2)
+
+
+@mcp.tool()
+def consult_episodic_memory(
+    problem_context: str,
+    limit: int = 5,
+    profile: Literal["default", "dev", "test"] | None = None,
+) -> str:
+    """Search completed/archived tasks for solutions to similar problems.
+
+    Use this tool BEFORE solving complex bugs or implementing features
+    to learn from past solutions and avoid repeating mistakes.
+
+    This searches ONLY completed/archived tasks (successful past work)
+    to find relevant patterns, solutions, and lessons learned.
+
+    Args:
+        problem_context: Description of the problem you're trying to solve
+                        (error messages, feature requirements, etc.)
+        limit: Maximum number of past solutions to return (default: 5)
+        profile: Database profile to use (default, dev, test)
+
+    Returns:
+        JSON list of relevant completed tasks with descriptions and any resolution details
+    """
+    import json
+
+    try:
+        from taskmanager.services.search import get_semantic_search_service
+
+        effective_profile = profile or get_default_profile()
+        service = get_service(effective_profile)
+        search_service = get_semantic_search_service(effective_profile)
+
+        # Search with lower threshold for broader results
+        results = search_service.search(problem_context, limit=limit * 2, threshold=0.1)
+
+        if not results:
+            return json.dumps(
+                {"result": "No relevant past solutions found in episodic memory.", "solutions": []},
+                indent=2,
+            )
+
+        # Filter to only COMPLETED and ARCHIVED tasks
+        past_solutions = []
+        for task_id, score in results:
+            try:
+                task = service.get_task(task_id)
+                if task.status in [TaskStatus.COMPLETED, TaskStatus.ARCHIVED]:
+                    past_solutions.append(
+                        {
+                            "task_id": task_id,
+                            "title": task.title,
+                            "status": task.status.value,
+                            "relevance_score": round(score, 3),
+                            "description": task.description,
+                            "tags": task.tags,
+                            "completed_at": task.updated_at.isoformat()
+                            if task.updated_at
+                            else None,
+                        }
+                    )
+                    if len(past_solutions) >= limit:
+                        break
+            except ValueError:
+                continue
+
+        if not past_solutions:
+            return json.dumps(
+                {
+                    "result": "No COMPLETED/ARCHIVED tasks match this problem. This may be a new type of issue.",
+                    "solutions": [],
+                },
+                indent=2,
+            )
+
+        return json.dumps(
+            {
+                "result": f"Found {len(past_solutions)} relevant past solution(s) in episodic memory.",
+                "solutions": past_solutions,
+                "recommendation": "Review these past solutions for patterns and approaches that may apply.",
+            },
+            indent=2,
+        )
+
+    except ImportError:
+        return json.dumps(
+            {
+                "error": "Semantic search not available",
+                "hint": "Install with: pip install fastembed sqlite-vec",
+            },
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"error": str(e)}, indent=2)
 
 
 # ============================================================================

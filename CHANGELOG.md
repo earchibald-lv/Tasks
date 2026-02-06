@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-02-05
+
+### Added
+
+- **Semantic Search & Episodic Memory** (SPEC-SEMANTIC-SEARCH):
+  - New `taskmanager/services/search.py` module with `SemanticSearchService`
+  - Integration with `fastembed` (nomic-ai/nomic-embed-text-v1.5, 384 dimensions via Matryoshka slicing)
+  - Integration with `sqlite-vec` for vector storage (vec0 virtual table)
+  - Lazy model loading to prevent CLI startup lag (~0ms cold start)
+  - Nomic-specific prefixes: "search_document:" for indexing, "search_query:" for retrieval
+
+- **CLI Commands** (Episodic Memory):
+  - `tasks capture "Quick task description"` - Quick task creation with duplicate detection
+  - `tasks recall "search query"` - Semantic search across all tasks with visual similarity bars
+  - `tasks maintenance reindex` - Rebuild semantic search index for all tasks
+
+- **MCP Tools** (Agent Memory):
+  - `check_prior_work(description)` - Find similar tasks before creating new ones
+  - `consult_episodic_memory(problem)` - Search completed tasks for past solutions and patterns
+  - Both tools return JSON with similarity scores and recommendations
+
+- **Dependencies**:
+  - `fastembed>=0.4.0` - Text embedding model
+  - `sqlite-vec>=0.1.1` - SQLite vector extension
+
+### Changed
+
+- **TaskService Integration**:
+  - New `enable_semantic_search` parameter for service initialization
+  - Automatic indexing on `create_task()` and `update_task()`
+  - Automatic removal from index on `delete_task()`
+
+- **MCP Tools Auto-Approval**:
+  - Added `check_prior_work` and `consult_episodic_memory` to TASKS_MCP_TOOLS list
+
 ## [0.10.0] - 2026-02-05
 
 ### Added

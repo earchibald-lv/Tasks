@@ -35,6 +35,9 @@ TASKS_MCP_TOOLS = [
     "search_workspace",
     "update_task",
     "update_task_interactive",
+    # Semantic search / Episodic memory tools (v0.11.0)
+    "check_prior_work",
+    "consult_episodic_memory",
 ]
 
 # Default atlassian-mcp tools (from Atlassian integration)

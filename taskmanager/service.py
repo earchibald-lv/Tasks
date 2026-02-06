@@ -9,6 +9,7 @@ import sys
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -32,6 +33,9 @@ from taskmanager.config import Settings, get_settings
 from taskmanager.models import Priority, Task, TaskStatus, Attachment
 from taskmanager.repository import TaskRepository
 from taskmanager.workspace import WorkspaceManager, WorkspaceMetadata
+
+if TYPE_CHECKING:
+    from taskmanager.services.search import SemanticSearchService
 
 
 @dataclass
@@ -69,18 +73,26 @@ class TaskService:
     ensuring consistency across CLI and MCP server interfaces.
     """
 
-    def __init__(self, repository: TaskRepository, session: Session | None = None) -> None:
+    def __init__(
+        self,
+        repository: TaskRepository,
+        session: Session | None = None,
+        enable_semantic_search: bool = True,
+    ) -> None:
         """Initialize the task service.
 
         Args:
             repository: TaskRepository implementation for data access.
             session: Optional SQLModel Session for database operations on attachments.
+            enable_semantic_search: Whether to enable semantic search indexing (default: True).
         """
         self.repository = repository
         self.session = session
         self.attachment_manager = AttachmentManager()
         self.workspace_manager = WorkspaceManager()
         self._config = None
+        self._enable_semantic_search = enable_semantic_search
+        self._search_service = None
 
     @property
     def config(self) -> "Settings":
@@ -88,6 +100,59 @@ class TaskService:
         if self._config is None:
             self._config = get_settings()
         return self._config
+
+    def _get_search_service(self) -> "SemanticSearchService | None":
+        """Get the semantic search service (lazy initialization).
+
+        Returns:
+            SemanticSearchService if enabled and available, None otherwise.
+        """
+        if not self._enable_semantic_search:
+            return None
+
+        if self._search_service is None:
+            try:
+                from taskmanager.services.search import SemanticSearchService
+
+                db_url = self.config.get_database_url()
+                # Extract path from sqlite:/// URL
+                if db_url.startswith("sqlite:///"):
+                    db_path = db_url[10:]
+                else:
+                    db_path = db_url
+                self._search_service = SemanticSearchService(db_path)
+            except Exception:
+                # Semantic search not available, continue without it
+                self._enable_semantic_search = False
+                return None
+
+        return self._search_service
+
+    def _index_task(self, task: Task) -> None:
+        """Index a task for semantic search (if enabled).
+
+        Args:
+            task: The task to index.
+        """
+        search_service = self._get_search_service()
+        if search_service:
+            try:
+                search_service.index_task(task)
+            except Exception:
+                pass  # Non-critical, don't fail the operation
+
+    def _remove_task_from_index(self, task_id: int) -> None:
+        """Remove a task from the semantic search index.
+
+        Args:
+            task_id: The ID of the task to remove.
+        """
+        search_service = self._get_search_service()
+        if search_service:
+            try:
+                search_service.remove_task(task_id)
+            except Exception:
+                pass  # Non-critical, don't fail the operation
 
     def create_task(
         self,
@@ -147,7 +212,12 @@ class TaskService:
             tags=tags,
         )
 
-        return self.repository.create(task)
+        created_task = self.repository.create(task)
+
+        # Index for semantic search
+        self._index_task(created_task)
+
+        return created_task
 
     def get_task(self, task_id: int) -> Task:
         """Retrieve a task by ID.
@@ -281,7 +351,12 @@ class TaskService:
         if tags is not None:
             task.tags = tags.strip() or None
 
-        return self.repository.update(task)
+        updated_task = self.repository.update(task)
+
+        # Re-index for semantic search
+        self._index_task(updated_task)
+
+        return updated_task
 
     def mark_complete(self, task_id: int) -> Task:
         """Mark a task as completed.
@@ -322,6 +397,9 @@ class TaskService:
         result = self.repository.delete(task_id)
         if not result:
             raise ValueError(f"Task with ID {task_id} not found")
+
+        # Remove from semantic search index
+        self._remove_task_from_index(task_id)
 
         return result
 
@@ -462,15 +540,13 @@ class TaskService:
 
         # Convert content to bytes if string
         if isinstance(content, str):
-            content = content.encode('utf-8')
+            content = content.encode("utf-8")
 
         if not content:
             raise ValueError("Content cannot be empty")
 
         # Add the content via attachment manager
-        metadata = self.attachment_manager.add_attachment_from_content(
-            task_id, filename, content
-        )
+        metadata = self.attachment_manager.add_attachment_from_content(task_id, filename, content)
 
         # Update task's attachments metadata
         attachments = parse_attachments(task.attachments)
@@ -567,8 +643,8 @@ class TaskService:
         Raises:
             ValueError: If task not found
         """
-        # Verify task exists
-        task = self.get_task(task_id)
+        # Verify task exists (raises ValueError if not found)
+        self.get_task(task_id)
 
         # Get attachment directory
         task_dir = self.attachment_manager.get_task_dir(task_id)
@@ -588,35 +664,30 @@ class TaskService:
 
         return None
 
-    def add_db_attachment(
-        self,
-        task_id: int,
-        original_filename: str,
-        content: bytes
-    ) -> Attachment:
+    def add_db_attachment(self, task_id: int, original_filename: str, content: bytes) -> Attachment:
         """Add a file attachment to a task in the database.
-        
+
         Args:
             task_id: The task ID
             original_filename: Original filename provided by user
             content: Binary file content
-            
+
         Returns:
             Attachment: The created attachment record
-            
+
         Raises:
             ValueError: If task not found or session not available
         """
         if not self.session:
             raise ValueError("Database session not available for attachment operations")
-        
+
         # Verify task exists (for validation)
         self.get_task(task_id)
-        
+
         # Generate storage filename with timestamp prefix
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
         storage_filename = f"{timestamp}_{original_filename}"
-        
+
         # Create attachment record
         attachment = Attachment(
             task_id=task_id,
@@ -625,96 +696,85 @@ class TaskService:
             file_data=content,
             size_bytes=len(content),
         )
-        
+
         self.session.add(attachment)
         self.session.commit()
         self.session.refresh(attachment)
         return attachment
 
-    def get_attachment_by_filename(
-        self,
-        task_id: int,
-        filename: str
-    ) -> Attachment | None:
+    def get_attachment_by_filename(self, task_id: int, filename: str) -> Attachment | None:
         """Retrieve attachment using dual-filename matching with priority order.
-        
+
         Matching priority:
         1. Exact match on original_filename
         2. Exact match on storage_filename
         3. Substring match on original_filename
         4. Substring match on storage_filename
         5. None if no match found
-        
+
         Args:
             task_id: The task ID
             filename: Original or partial filename to match
-            
+
         Returns:
             Attachment if found, None otherwise
         """
         if not self.session:
             return None
-        
+
         # Verify task exists (for validation)
         self.get_task(task_id)
-        
+
         # Query for attachments of this task
-        query = self.session.query(Attachment).filter(
-            Attachment.task_id == task_id
-        )
-        
+        query = self.session.query(Attachment).filter(Attachment.task_id == task_id)
+
         # Priority 1: Exact match on original_filename
-        exact_match = query.filter(
-            Attachment.original_filename == filename
-        ).first()
+        exact_match = query.filter(Attachment.original_filename == filename).first()
         if exact_match:
             return exact_match
-        
+
         # Priority 2: Exact match on storage_filename
-        exact_match = query.filter(
-            Attachment.storage_filename == filename
-        ).first()
+        exact_match = query.filter(Attachment.storage_filename == filename).first()
         if exact_match:
             return exact_match
-        
+
         # Priority 3: Substring on original_filename
-        substring_match = query.filter(
-            Attachment.original_filename.ilike(f"%{filename}%")
-        ).first()
+        substring_match = query.filter(Attachment.original_filename.ilike(f"%{filename}%")).first()
         if substring_match:
             return substring_match
-        
+
         # Priority 4: Substring on storage_filename
-        substring_match = query.filter(
-            Attachment.storage_filename.ilike(f"%{filename}%")
-        ).first()
+        substring_match = query.filter(Attachment.storage_filename.ilike(f"%{filename}%")).first()
         if substring_match:
             return substring_match
-        
+
         return None
 
     def list_db_attachments(self, task_id: int) -> list[Attachment]:
         """List all database-stored attachments for a task.
-        
+
         Args:
             task_id: The task ID
-            
+
         Returns:
             List of attachments
-            
+
         Raises:
             ValueError: If task not found
         """
         if not self.session:
             return []
-        
+
         # Verify task exists (for validation)
         self.get_task(task_id)
-        
-        attachments = self.session.query(Attachment).filter(
-            Attachment.task_id == task_id
-        ).order_by(Attachment.created_at.desc()).all()
-        
+
+        attachments = (
+            self.session.query(Attachment)
+            .filter(Attachment.task_id == task_id)
+            .order_by(Attachment.created_at.desc())
+            .all()
+        )
+
         return attachments
 
     def get_all_used_tags(self) -> list[str]:
