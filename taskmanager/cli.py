@@ -753,7 +753,7 @@ def cmd_recall(args):
             sys.exit(1)
 
         limit = args.limit if hasattr(args, "limit") else 5
-        threshold = args.threshold if hasattr(args, "threshold") else 0.15
+        threshold = args.threshold if hasattr(args, "threshold") else 0.0
 
         results = search_service.search(query, limit=limit, threshold=threshold)
 
@@ -2253,8 +2253,8 @@ def main():
         "-t",
         "--threshold",
         type=float,
-        default=0.15,
-        help="Similarity threshold 0-1 (default: 0.15)",
+        default=0.0,
+        help="Similarity threshold 0-1 (default: 0.0 - return top matches)",
     )
     recall_parser.set_defaults(func=cmd_recall)
 

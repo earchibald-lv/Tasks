@@ -251,17 +251,17 @@ class SemanticSearchService:
         self,
         query: str,
         limit: int = 5,
-        threshold: float = 0.25,
+        threshold: float = 0.0,
     ) -> list[tuple[int, float]]:
         """Search for similar tasks using semantic similarity.
 
         Args:
             query: The search query text
             limit: Maximum number of results to return
-            threshold: Minimum similarity score (0-1, higher is more similar)
+            threshold: Minimum similarity score (0-1, higher is more similar). Default 0.0 returns top matches.
 
         Returns:
-            List of (task_id, distance) tuples, sorted by similarity
+            List of (task_id, similarity) tuples, sorted by similarity (highest first)
         """
         try:
             conn = self._get_connection()
