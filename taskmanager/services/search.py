@@ -11,10 +11,15 @@ Architecture:
 
 from __future__ import annotations
 
-import sqlite3
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+# Try pysqlite3 first (has extension support), fall back to sqlite3
+try:
+    import pysqlite3.dbapi2 as sqlite3
+except ImportError:
+    import sqlite3
 
 if TYPE_CHECKING:
     from fastembed import TextEmbedding
@@ -103,9 +108,14 @@ class SemanticSearchService:
                 try:
                     import sqlite_vec
 
-                    self._connection.enable_load_extension(True)
-                    sqlite_vec.load(self._connection)
-                    self._connection.enable_load_extension(False)
+                    # Try to enable extension loading if supported
+                    if hasattr(self._connection, "enable_load_extension"):
+                        self._connection.enable_load_extension(True)
+                        sqlite_vec.load(self._connection)
+                        self._connection.enable_load_extension(False)
+                    else:
+                        # Fallback: Try direct loading (works with statically-linked builds)
+                        sqlite_vec.load(self._connection)
                     _sqlite_vec_loaded = True
                 except Exception as e:
                     raise RuntimeError(

@@ -37,6 +37,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+semantic_search = [
+    # Optional: pysqlite3-binary for systems where sqlite3 lacks extension support
+    # Install manually if needed: pip install pysqlite3-binary
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
