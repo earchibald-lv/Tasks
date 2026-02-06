@@ -823,14 +823,25 @@ def cmd_maintenance_reindex(args):
             args.profile if hasattr(args, "profile") and args.profile else "default"
         )
 
-        # Get all tasks
-        all_tasks, total = service.list_tasks(limit=1000)
+        # Get all tasks by paginating (list_tasks has max limit of 100)
+        all_tasks = []
+        offset = 0
+        limit = 100
+        
+        while True:
+            tasks_batch, total = service.list_tasks(limit=limit, offset=offset)
+            all_tasks.extend(tasks_batch)
+            offset += len(tasks_batch)
+            
+            # Break if we've retrieved all tasks
+            if offset >= total or len(tasks_batch) == 0:
+                break
 
-        if total == 0:
+        if len(all_tasks) == 0:
             print("No tasks to index.")
             return
 
-        print(f"Reindexing {total} task(s)...")
+        print(f"Reindexing {len(all_tasks)} task(s)...")
 
         success, failure = search_service.reindex_all(all_tasks)
 

@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-02-05
+## [0.11.0] - 2026-02-06
+
+### Changed
+
+- **Python 3.13 Required**:
+  - Updated minimum Python version from 3.12 to 3.13
+  - Rationale: Python 3.13's sqlite3 module has extension loading support enabled by default (required for sqlite-vec)
+  - Installation: `pipx install -e . --python python3.13`
+
+### Fixed
+
+- **Semantic Search Index Pagination**:
+  - Fixed `tasks maintenance reindex` command to properly paginate through all tasks
+  - Previous implementation tried to fetch 1000 tasks but service layer limits requests to 100
+  - Now uses pagination loop to retrieve all tasks for indexing
+
+- **sqlite-vec Extension Loading**:
+  - Added fallback for systems where `enable_load_extension` is not available
+  - Checks for attribute before attempting to use it
+  - Works with statically-linked sqlite-vec builds
 
 ### Added
 
