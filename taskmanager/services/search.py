@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
 # Lazy import for fastembed to prevent startup lag
 _embedding_model = None
-_sqlite_vec_loaded = False
 
 
 class SemanticSearchService:
@@ -61,6 +60,7 @@ class SemanticSearchService:
         self.cache_dir = cache_dir or self.DEFAULT_CACHE_DIR
         self._model = None
         self._connection: sqlite3.Connection | None = None
+        self._vec_loaded = False  # Track if sqlite-vec loaded for this connection
 
     def _get_model(self) -> TextEmbedding:
         """Lazy-load the embedding model.
@@ -98,30 +98,29 @@ class SemanticSearchService:
         Raises:
             RuntimeError: If sqlite-vec cannot be loaded
         """
-        global _sqlite_vec_loaded
-
         if self._connection is None:
             self._connection = sqlite3.connect(str(self.db_path))
+            self._vec_loaded = False
 
-            # Load sqlite-vec extension
-            if not _sqlite_vec_loaded:
-                try:
-                    import sqlite_vec
+        # Load sqlite-vec extension on first access
+        if not self._vec_loaded:
+            try:
+                import sqlite_vec
 
-                    # Try to enable extension loading if supported
-                    if hasattr(self._connection, "enable_load_extension"):
-                        self._connection.enable_load_extension(True)
-                        sqlite_vec.load(self._connection)
-                        self._connection.enable_load_extension(False)
-                    else:
-                        # Fallback: Try direct loading (works with statically-linked builds)
-                        sqlite_vec.load(self._connection)
-                    _sqlite_vec_loaded = True
-                except Exception as e:
-                    raise RuntimeError(
-                        f"Failed to load sqlite-vec extension: {e}. "
-                        "Install with: pip install sqlite-vec"
-                    ) from e
+                # Enable extension loading if supported
+                if hasattr(self._connection, "enable_load_extension"):
+                    self._connection.enable_load_extension(True)
+                    sqlite_vec.load(self._connection)
+                    self._connection.enable_load_extension(False)
+                else:
+                    # Fallback: Try direct loading (works with statically-linked builds)
+                    sqlite_vec.load(self._connection)
+                self._vec_loaded = True
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to load sqlite-vec extension: {e}. "
+                    "Install with: pip install pysqlite3 sqlite-vec"
+                ) from e
 
             # Ensure vec_tasks table exists
             self._ensure_vec_table()
