@@ -2263,7 +2263,7 @@ def main():
         "--threshold",
         type=float,
         default=0.0,
-        help="Similarity threshold 0-1 (default: 0.0 - filters to 80%% of top match score)",
+        help="Similarity threshold 0-1, or 0 to auto-adjust to 80%% of top match (default: 0)",
     )
     recall_parser.set_defaults(func=cmd_recall)
 
