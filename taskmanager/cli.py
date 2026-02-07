@@ -753,10 +753,20 @@ def cmd_capture(args):
 
     Uses semantic search to detect similar existing tasks before creating new ones.
     If a similar task is found, prompts to add as comment instead.
+    
+    Supports text input via command-line argument or stdin:
+    - tasks capture "My task text"
+    - echo "My task text" | tasks capture
     """
     try:
         service = get_service()
-        text = args.text.strip()
+        
+        # Get text from argument or stdin
+        if args.text:
+            text = args.text.strip()
+        else:
+            # Read from stdin
+            text = sys.stdin.read().strip()
 
         if not text:
             print("Error: Cannot capture empty text", file=sys.stderr)
@@ -2315,7 +2325,11 @@ def main():
     capture_parser = subparsers.add_parser(
         "capture", help="Quick-capture a task with semantic duplicate detection"
     )
-    capture_parser.add_argument("text", help="Task text to capture")
+    capture_parser.add_argument(
+        "text",
+        nargs="?",
+        help="Task text to capture (reads from stdin if not provided)"
+    )
     capture_parser.set_defaults(func=cmd_capture)
 
     # Append command (add timestamped text to an existing task)
