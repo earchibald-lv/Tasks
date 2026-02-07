@@ -520,60 +520,92 @@ def cmd_tags(args):
 
 
 def cmd_search(args):
-    """Search across all tasks and workspaces."""
+    """Unified search across tasks using semantic or exact matching.
+
+    By default, uses semantic search (vector similarity) to find conceptually
+    related tasks even without exact keyword matches. Use --exact for literal
+    text matching. Optionally searches workspace files with --workspaces.
+    """
     try:
         service = get_service()
+        profile = args.profile if hasattr(args, "profile") and args.profile else "default"
+
+        query = args.query.strip()
+        if not query:
+            print("Error: Query cannot be empty", file=sys.stderr)
+            sys.exit(1)
 
         # Build filters
         filters = {}
         if args.status and args.status != "all":
             filters["status"] = TaskStatus[args.status.upper()]
 
-        # Get all tasks
-        all_tasks, total = service.list_tasks(**filters, limit=100)
+        use_exact = getattr(args, "exact", False)
+        search_workspaces = getattr(args, "workspaces", False)
+        limit = getattr(args, "limit", 10)
+        threshold = getattr(args, "threshold", 0.0)
 
-        if total == 0:
-            print("No tasks found")
-            sys.exit(0)
-
-        task_matches = []
+        semantic_results = []
+        exact_matches = []
         workspace_matches = []
 
-        # Search task metadata
-        if args.tasks:
-            query_lower = args.query.lower() if not args.case_sensitive else args.query
+        # Semantic search (default mode)
+        if not use_exact:
+            try:
+                from taskmanager.services.search import get_semantic_search_service
+
+                search_service = get_semantic_search_service(profile)
+                semantic_results = search_service.search(query, limit=limit, threshold=threshold)
+            except ImportError:
+                print(
+                    "Note: Semantic search unavailable, falling back to exact match.",
+                    file=sys.stderr,
+                )
+                print("Install with: pip install fastembed sqlite-vec", file=sys.stderr)
+                use_exact = True
+            except Exception as e:
+                print(
+                    f"Note: Semantic search failed ({e}), falling back to exact match.",
+                    file=sys.stderr,
+                )
+                use_exact = True
+
+        # Exact text search (fallback or explicit)
+        if use_exact:
+            all_tasks, total = service.list_tasks(**filters, limit=100)
+            query_check = query.lower() if not args.case_sensitive else query
 
             for task in all_tasks:
                 matches = []
-
                 title_check = task.title.lower() if not args.case_sensitive else task.title
-                if query_lower in title_check:
+                if query_check in title_check:
                     matches.append("title")
 
                 if task.description:
                     desc_check = (
                         task.description.lower() if not args.case_sensitive else task.description
                     )
-                    if query_lower in desc_check:
+                    if query_check in desc_check:
                         matches.append("description")
 
                 if task.tags:
                     tags_check = task.tags.lower() if not args.case_sensitive else task.tags
-                    if query_lower in tags_check:
+                    if query_check in tags_check:
                         matches.append("tags")
 
                 if task.jira_issues:
                     jira_check = (
                         task.jira_issues.lower() if not args.case_sensitive else task.jira_issues
                     )
-                    if query_lower in jira_check:
+                    if query_check in jira_check:
                         matches.append("JIRA")
 
                 if matches:
-                    task_matches.append({"task": task, "fields": matches})
+                    exact_matches.append({"task": task, "fields": matches})
 
-        # Search workspaces
-        if args.workspaces:
+        # Workspace file search (optional)
+        if search_workspaces:
+            all_tasks, _ = service.list_tasks(**filters, limit=100)
             for task in all_tasks:
                 if not task.workspace_path or not task.id:
                     continue
@@ -584,13 +616,10 @@ def cmd_search(args):
 
                 try:
                     rg_args = ["rg", "--color", "never", "--files-with-matches", "--max-count", "5"]
-
                     if not args.case_sensitive:
                         rg_args.append("--ignore-case")
-
                     if args.pattern != "*":
                         rg_args.extend(["--glob", args.pattern])
-
                     rg_args.extend(
                         [
                             "--glob",
@@ -603,36 +632,77 @@ def cmd_search(args):
                             "!__pycache__",
                         ]
                     )
-                    rg_args.extend([args.query, str(workspace_path)])
+                    rg_args.extend([query, str(workspace_path)])
 
                     result = subprocess.run(rg_args, capture_output=True, text=True, timeout=5)
-
                     if result.returncode == 0:
                         matched_files = result.stdout.strip().split("\n")
                         matched_files = [
                             f.replace(str(workspace_path) + "/", "") for f in matched_files if f
                         ]
                         workspace_matches.append({"task": task, "files": matched_files})
-
                 except (subprocess.TimeoutExpired, FileNotFoundError):
                     continue
 
         # Display results
-        if not task_matches and not workspace_matches:
-            print(f"No matches found for: {args.query}")
-            print(f"Searched: {total} task(s)")
+        has_results = semantic_results or exact_matches or workspace_matches
+
+        if not has_results:
+            print(f"No matches found for: {query}")
+            if not use_exact:
+                print(
+                    "\nTip: Try --exact for literal text search or --workspaces for file content."
+                )
             return
 
-        print(f"Search Results for: {args.query}\n")
-        print(f"Searched: {total} task(s)")
-        print(
-            f"Found: {len(task_matches)} task match(es), {len(workspace_matches)} workspace match(es)\n"
-        )
+        # Display semantic search results
+        if semantic_results:
+            print(f'🔍 Semantic Search: "{query}"')
+            print(f"   Found {len(semantic_results)} match(es)")
+            print()
 
-        # Show task matches
-        if task_matches:
-            print("Task Metadata Matches:")
-            for match in task_matches[:20]:
+            headers = ["ID", "Score", "Status", "Title"]
+            rows = []
+            max_score = max(score for _, score in semantic_results) if semantic_results else 1
+            if max_score == 0:
+                max_score = 1
+
+            for task_id, score in semantic_results:
+                try:
+                    task = service.get_task(task_id)
+                    status_emoji = {
+                        "pending": "⭕",
+                        "in_progress": "🔄",
+                        "completed": "✅",
+                        "cancelled": "❌",
+                        "archived": "📦",
+                        "assigned": "⭐",
+                        "stuck": "⛔",
+                        "review": "🔍",
+                        "integrate": "✅",
+                    }.get(task.status.value, "❓")
+
+                    normalized_score = score / max_score
+                    filled_blocks = int(normalized_score * 10)
+                    score_bar = "█" * filled_blocks + "░" * (10 - filled_blocks)
+
+                    rows.append(
+                        [
+                            f"#{task_id}",
+                            f"[{score_bar}]",
+                            f"{status_emoji} {task.status.value}",
+                            task.title[:50] + ("..." if len(task.title) > 50 else ""),
+                        ]
+                    )
+                except ValueError:
+                    continue
+
+            print_table(headers, rows)
+
+        # Display exact text matches
+        if exact_matches:
+            print(f"\n📝 Exact Text Matches ({len(exact_matches)}):")
+            for match in exact_matches[:20]:
                 task = match["task"]
                 fields = ", ".join(match["fields"])
                 status_emoji = {
@@ -648,9 +718,9 @@ def cmd_search(args):
                     print("   📁 Has workspace")
                 print()
 
-        # Show workspace matches
+        # Display workspace matches
         if workspace_matches:
-            print("Workspace Content Matches:")
+            print(f"\n📁 Workspace Content Matches ({len(workspace_matches)}):")
             for match in workspace_matches[:20]:
                 task = match["task"]
                 files = match["files"]
@@ -795,89 +865,13 @@ def cmd_append(args):
 
 
 def cmd_recall(args):
-    """Semantic search across tasks (episodic memory retrieval).
+    """DEPRECATED: Use 'tasks search' instead.
 
-    Uses vector similarity to find conceptually related tasks,
-    even if they don't share exact keywords.
+    This command is kept for backwards compatibility and forwards
+    all calls to the unified search command.
     """
-    try:
-        from taskmanager.services.search import get_semantic_search_service
-
-        service = get_service()
-        search_service = get_semantic_search_service(
-            args.profile if hasattr(args, "profile") and args.profile else "default"
-        )
-
-        query = args.query.strip()
-        if not query:
-            print("Error: Query cannot be empty", file=sys.stderr)
-            sys.exit(1)
-
-        limit = args.limit if hasattr(args, "limit") else 5
-        threshold = args.threshold if hasattr(args, "threshold") else 0.0
-
-        results = search_service.search(query, limit=limit, threshold=threshold)
-
-        if not results:
-            print(f"No matching tasks found for: {query}")
-            print("\nTip: Try broader search terms or lower the threshold with --threshold 0.1")
-            return
-
-        print(f'🔍 Semantic Search: "{query}"')
-        print(f"   Found {len(results)} match(es)")
-        print()
-
-        # Build table data
-        headers = ["ID", "Score", "Status", "Title"]
-        rows = []
-
-        # Normalize scores for visualization (relative to max score in results)
-        if results:
-            max_score = max(score for _, score in results)
-            if max_score == 0:
-                max_score = 1  # Prevent division by zero
-
-            for task_id, score in results:
-                try:
-                    task = service.get_task(task_id)
-                    status_emoji = {
-                        "pending": "⭕",
-                        "in_progress": "🔄",
-                        "completed": "✅",
-                        "cancelled": "❌",
-                        "archived": "📦",
-                        "assigned": "⭐",
-                        "stuck": "⛔",
-                        "review": "🔍",
-                        "integrate": "✅",
-                    }.get(task.status.value, "❓")
-
-                    # Normalize score to 0-1 range relative to best match
-                    normalized_score = score / max_score
-                    # Create visual bar (0-10 filled blocks)
-                    filled_blocks = int(normalized_score * 10)
-                    score_bar = "█" * filled_blocks + "░" * (10 - filled_blocks)
-
-                    rows.append(
-                        [
-                            f"#{task_id}",
-                            f"[{score_bar}]",
-                            f"{status_emoji} {task.status.value}",
-                            task.title[:50] + ("..." if len(task.title) > 50 else ""),
-                        ]
-                    )
-                except ValueError:
-                    continue
-
-        print_table(headers, rows)
-
-    except ImportError:
-        print("Error: Semantic search not available.", file=sys.stderr)
-        print("Install with: pip install fastembed sqlite-vec", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: {str(e)}", file=sys.stderr)
-        sys.exit(1)
+    # Forward to unified search
+    cmd_search(args)
 
 
 def cmd_maintenance_reindex(args):
@@ -2281,31 +2275,40 @@ def main():
     tags_parser = subparsers.add_parser("tags", help="List all unique tags")
     tags_parser.set_defaults(func=cmd_tags)
 
-    # Search command
-    search_parser = subparsers.add_parser("search", help="Search across all tasks and workspaces")
+    # Search command (unified semantic + text search)
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Search tasks using semantic similarity (default) or exact text matching",
+    )
     search_parser.add_argument("query", help="Search query")
+    search_parser.add_argument(
+        "-l", "--limit", type=int, default=10, help="Maximum results (default: 10)"
+    )
+    search_parser.add_argument(
+        "-t",
+        "--threshold",
+        type=float,
+        default=0.0,
+        help="Similarity threshold 0-1, or 0 to auto-adjust (default: 0)",
+    )
+    search_parser.add_argument(
+        "--exact",
+        action="store_true",
+        help="Use exact text matching instead of semantic search",
+    )
     search_parser.add_argument(
         "--workspaces",
         action="store_true",
-        default=True,
-        help="Search workspace files (default: True)",
+        default=False,
+        help="Also search workspace file contents (requires ripgrep)",
     )
     search_parser.add_argument(
-        "--no-workspaces", action="store_false", dest="workspaces", help="Skip workspace search"
+        "-p", "--pattern", default="*", help="File pattern for workspace search (e.g., '*.py')"
     )
     search_parser.add_argument(
-        "--tasks", action="store_true", default=True, help="Search task metadata (default: True)"
+        "-c", "--case-sensitive", action="store_true", help="Case sensitive search (for --exact)"
     )
-    search_parser.add_argument(
-        "--no-tasks", action="store_false", dest="tasks", help="Skip task metadata search"
-    )
-    search_parser.add_argument(
-        "-p", "--pattern", default="*", help="File pattern for workspace search"
-    )
-    search_parser.add_argument(
-        "-c", "--case-sensitive", action="store_true", help="Case sensitive search"
-    )
-    search_parser.add_argument("-s", "--status", default="all", help="Filter by status")
+    search_parser.add_argument("-s", "--status", default="all", help="Filter by task status")
     search_parser.set_defaults(func=cmd_search)
 
     # Capture command (quick task creation with duplicate detection)
@@ -2323,21 +2326,22 @@ def main():
     append_parser.add_argument("text", help="Text to append (supports @file syntax)")
     append_parser.set_defaults(func=cmd_append)
 
-    # Recall command (semantic search / episodic memory)
-    recall_parser = subparsers.add_parser(
-        "recall", help="Semantic search across tasks (episodic memory)"
-    )
+    # Recall command (deprecated, forwards to search)
+    recall_parser = subparsers.add_parser("recall", help="[DEPRECATED] Use 'tasks search' instead")
     recall_parser.add_argument("query", help="Search query")
+    recall_parser.add_argument("-l", "--limit", type=int, default=10, help="Maximum results")
     recall_parser.add_argument(
-        "-l", "--limit", type=int, default=5, help="Maximum results (default: 5)"
+        "-t", "--threshold", type=float, default=0.0, help="Similarity threshold"
+    )
+    recall_parser.add_argument("--exact", action="store_true", help="Use exact text matching")
+    recall_parser.add_argument(
+        "--workspaces", action="store_true", default=False, help="Search workspace files"
     )
     recall_parser.add_argument(
-        "-t",
-        "--threshold",
-        type=float,
-        default=0.0,
-        help="Similarity threshold 0-1, or 0 to auto-adjust to 80%% of top match (default: 0)",
+        "-p", "--pattern", default="*", help="File pattern for workspace search"
     )
+    recall_parser.add_argument("-c", "--case-sensitive", action="store_true", help="Case sensitive")
+    recall_parser.add_argument("-s", "--status", default="all", help="Filter by status")
     recall_parser.set_defaults(func=cmd_recall)
 
     # Maintenance sub-commands

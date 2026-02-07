@@ -335,12 +335,24 @@ class SemanticSearchService:
     def reindex_all(self, tasks: list[Task]) -> tuple[int, int]:
         """Reindex all tasks for initial migration or repair.
 
+        This clears all existing embeddings first to remove orphaned entries
+        (embeddings for tasks that no longer exist), then reindexes all
+        provided tasks.
+
         Args:
             tasks: List of all tasks to index
 
         Returns:
             Tuple of (success_count, failure_count)
         """
+        # First, clear all existing embeddings to remove orphaned entries
+        try:
+            conn = self._get_connection()
+            conn.execute("DELETE FROM vec_tasks")
+            conn.commit()
+        except Exception as e:
+            print(f"Warning: Could not clear vec_tasks: {e}", file=sys.stderr)
+
         success = 0
         failure = 0
 
