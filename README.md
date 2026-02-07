@@ -146,7 +146,7 @@ Options:
   --description TEXT              Task description
   --priority [low|medium|high|urgent]
   --due YYYY-MM-DD               Due date
-  --status [pending|in_progress|completed|cancelled|archived]
+  --status [pending|in_progress|completed|cancelled|archived|assigned|stuck|review|integrate]
   --jira TEXT                    JIRA issue keys (comma-separated)
 ```
 
@@ -164,7 +164,7 @@ tasks add "Fix auth" --jira "SRE-1234,DEVOPS-5678" --priority urgent
 tasks list [options]
 
 Options:
-  --status [pending|in_progress|completed|cancelled|archived]
+  --status [pending|in_progress|completed|cancelled|archived|assigned|stuck|review|integrate]
   --priority [low|medium|high|urgent]
   --limit INTEGER                Max results (default: 20)
   --offset INTEGER               Pagination offset
@@ -197,7 +197,7 @@ Options:
   --title TEXT
   --description TEXT
   --priority [low|medium|high|urgent]
-  --status [pending|in_progress|completed|cancelled|archived]
+  --status [pending|in_progress|completed|cancelled|archived|assigned|stuck|review|integrate]
   --due YYYY-MM-DD
   --jira TEXT                    JIRA issue keys (comma-separated)
   --clear-description            Clear the description
@@ -404,7 +404,7 @@ The task manager uses a flexible configuration system with TOML files, environme
 Configuration is loaded in priority order (highest first):
 
 1. **CLI Flags**: `--config`, `--profile`, `--database` (highest priority)
-2. **Environment Variables**: `TASKMANAGER_*` prefix
+2. **Environment Variables**: `TASKS_PROFILE`, `TASKMANAGER_*` prefix
 3. **Project Config**: `./taskmanager.toml` (relative to git root, team-shared)
 4. **User Config**: `~/.config/taskmanager/config.toml` (XDG standard)
 5. **Defaults**: Hardcoded sensible defaults (lowest priority)
@@ -447,6 +447,7 @@ Profiles allow easy switching between databases without manual URL changes.
 - **`default`**: Production database at `~/.config/taskmanager/tasks.db`
 - **`dev`**: Development database at `~/.config/taskmanager/tasks-dev.db`
 - **`test`**: In-memory database for testing (`sqlite:///:memory:`)
+- **Custom Profiles**: User-defined profiles with custom database paths
 
 **Usage:**
 
@@ -462,6 +463,31 @@ tasks --database "sqlite:///custom.db" list
 
 # Use custom config file
 tasks --config ./my-config.toml list
+```
+
+**Setting Default Profile via Environment Variable:**
+
+You can set the default profile using the `TASKS_PROFILE` environment variable. This is especially useful in scripts, automation, and MCP contexts:
+
+```bash
+# Set dev profile for all commands in this shell session
+export TASKS_PROFILE=dev
+tasks list                          # Uses dev profile
+tasks add "Dev task"                # Uses dev profile
+
+# Or use for a single command
+TASKS_PROFILE=dev tasks list
+
+# CLI flag takes precedence over env var
+TASKS_PROFILE=dev tasks --profile test list  # Uses test profile (flag wins)
+```
+
+This is commonly used in worktree-based development workflows:
+
+```bash
+# In a feature branch worktree, ensure we use dev profile
+export TASKS_PROFILE=dev
+tasks list                          # Automatically uses dev profile
 ```
 
 ### Path Token Expansion
