@@ -1,7 +1,7 @@
 {
 	"servers": {
 		"tasks-mcp": {
-			"command": "tasks-mcp",
+			"command": "/Users/Eugene.Archibald/.local/bin/tasks-mcp",
 			"type": "stdio"
 		}
 	},
