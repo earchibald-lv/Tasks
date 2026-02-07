@@ -566,8 +566,44 @@ Tasks-N/                        # Feature worktrees (isolated)
 
 - **default**: Production use, stable database (`~/.config/taskmanager/tasks.db`)
 - **dev**: Development tasks, isolated database (`~/.config/taskmanager/tasks-dev.db`)
-- **test**: Testing, in-memory database (ephemeral)
+- **test**: Testing, in-memory database (ephemeral) - for automated test suites only
+- **test_persist**: Persistent test database for manual development testing (`~/.config/taskmanager/tasks-test-persist.db`)
 - **Custom**: User-defined profiles with custom database paths and configurations
+
+### Profile Governance (Development Workflow)
+
+**Tasks to PERFORM come from `dev` profile:**
+- Track development work items: `tasks --profile dev list`
+- Create feature tasks: `tasks --profile dev add "Feature name"`
+- Update task status: `tasks --profile dev update {{id}} --status in_progress`
+
+**Tasks DURING development use `test_persist` profile:**
+- Create test data for feature verification: `tasks --profile test_persist add "Test task"`
+- Experiment without polluting dev task queue
+- Persistent storage allows verification across multiple commands
+- Clean up when done: `rm ~/.config/taskmanager/tasks-test-persist.db`
+
+**Example workflow:**
+```bash
+# 1. Get your work item from dev profile
+tasks --profile dev show 42
+
+# 2. During implementation, create test data in test_persist
+tasks --profile test_persist add "Test Case 1"
+tasks --profile test_persist add "Test Case 2"
+
+# 3. Test your feature against test_persist data
+tasks --profile test_persist list
+tasks --profile test_persist update 1 --status completed
+
+# 4. Clean up test data when done
+rm ~/.config/taskmanager/tasks-test-persist.db
+
+# 5. Mark dev task complete
+tasks --profile dev update 42 --status completed
+```
+
+**DO NOT use `test` profile for manual testing** - it uses in-memory SQLite which creates a new database for each command, making it unsuitable for manual workflows.
 
 ### Custom Profiles
 
@@ -650,6 +686,11 @@ database_url = "sqlite:///{config}/taskmanager/tasks-stale-profile.db"
   - Database: `~/.config/taskmanager/tasks-dev.db`
   - Use for: Creating tasks, delegating to agents, task management during feature work
   - Isolation: Separate from production/default profile; safe for experimentation
+
+- **test_persist**: Manual development testing with persistent storage
+  - Database: `~/.config/taskmanager/tasks-test-persist.db`
+  - Use for: Creating test data during feature development, manual testing
+  - Clean up after testing: `rm ~/.config/taskmanager/tasks-test-persist.db`
   
 - **default**: Production tasks and user work
   - Database: `~/.config/taskmanager/tasks.db`
@@ -660,6 +701,7 @@ database_url = "sqlite:///{config}/taskmanager/tasks-stale-profile.db"
 
 **Development Guideline** (MANDATORY):
 - ✅ Creating task for feature work: `tasks --profile dev add "Feature name"`
+- ✅ Creating test data: `tasks --profile test_persist add "Test task"`
 - ✅ Attaching prompt: `profile="dev"` in MCP tool parameter
 - ✅ Listing development tasks: `tasks --profile dev list`
 - ❌ Accidentally using default profile for development: Will pollute user's main task database

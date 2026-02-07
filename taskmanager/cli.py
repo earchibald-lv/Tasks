@@ -2153,7 +2153,7 @@ def main():
     parser.add_argument(
         "-p",
         "--profile",
-        help="Configuration profile (default, dev, test). Can also be set via TASKS_PROFILE env var",
+        help="Configuration profile (default, dev, test, test_persist). Can also be set via TASKS_PROFILE env var",
     )
     parser.add_argument("-d", "--database", help="Database URL override")
 

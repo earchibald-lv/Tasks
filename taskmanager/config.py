@@ -4,7 +4,7 @@ This module provides centralized configuration using Pydantic Settings with:
 - TOML configuration files (user + project)
 - Environment variables
 - CLI flag overrides
-- Profile system (default, dev, test)
+- Profile system (default, dev, test, test_persist)
 - Path token expansion ({config}, {home}, {data})
 - 1Password secret references (op://...) with runtime resolution
 """
@@ -126,6 +126,10 @@ class DatabaseProfiles(BaseModel):
     test: str = Field(
         default="sqlite:///:memory:",
         description="Test database (in-memory)",
+    )
+    test_persist: str = Field(
+        default="sqlite:///{config}/tasks-test-persist.db",
+        description="Persistent test database for manual development testing",
     )
 
 
@@ -309,7 +313,7 @@ class Settings(BaseSettings):
     version: str = Field(default="0.1.0", description="Application version")
 
     # Profile system
-    profile: str = Field(default="default", description="Active profile (default, dev, test)")
+    profile: str = Field(default="default", description="Active profile (default, dev, test, test_persist)")
     
     # Timezone
     timezone: str = Field(default_factory=get_system_timezone, description="Local timezone for time-aware operations (auto-detected, IANA timezone name)")
@@ -334,7 +338,7 @@ class Settings(BaseSettings):
         """Validate profile name format.
         
         Allows alphanumeric characters, hyphens, and underscores.
-        Built-in profiles (default, dev, test) are always valid.
+        Built-in profiles (default, dev, test, test_persist) are always valid.
         Custom profiles can be defined in settings.
         """
         # Validate format: alphanumeric, hyphens, underscores
@@ -397,7 +401,7 @@ class Settings(BaseSettings):
         """Get the database URL for the active profile.
         
         Supports:
-        - Built-in profiles (default, dev, test) with standard paths
+        - Built-in profiles (default, dev, test, test_persist) with standard paths
         - Custom profiles with configured database_url
         - Fallback to auto-generated path for unconfigured custom profiles
 
@@ -418,6 +422,7 @@ class Settings(BaseSettings):
             "default": self.database.profiles.default,
             "dev": self.database.profiles.dev,
             "test": self.database.profiles.test,
+            "test_persist": self.database.profiles.test_persist,
         }
 
         # Check built-in profiles first
@@ -655,7 +660,7 @@ def create_settings_for_profile(profile: str | None = None) -> Settings:
     to be used simultaneously (e.g., in MCP server with per-tool profiles).
 
     Args:
-        profile: Database profile to use (default, dev, test). If None, checks TASKS_PROFILE env var.
+        profile: Database profile to use (default, dev, test, test_persist). If None, checks TASKS_PROFILE env var.
 
     Returns:
         Settings: A new Settings instance configured for the profile
