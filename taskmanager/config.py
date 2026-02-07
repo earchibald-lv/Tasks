@@ -604,6 +604,9 @@ def get_settings() -> Settings:
 
     Returns:
         Settings: The application settings instance
+    
+    Environment Variables:
+        TASKS_PROFILE: Set the active profile (e.g., TASKS_PROFILE=dev)
     """
     global _settings
     if _settings is None:
@@ -616,6 +619,11 @@ def get_settings() -> Settings:
         # Handle general section
         if "general" in toml_config:
             flat_config.update(toml_config["general"])
+        
+        # Check for TASKS_PROFILE environment variable (takes precedence over TOML)
+        tasks_profile = os.getenv("TASKS_PROFILE")
+        if tasks_profile:
+            flat_config["profile"] = tasks_profile
         
         # Pass nested sections as-is
         for key in ["database", "defaults", "logging", "mcp", "atlassian", "profiles"]:
@@ -640,14 +648,14 @@ def reset_settings() -> None:
     _settings = None
 
 
-def create_settings_for_profile(profile: str) -> Settings:
+def create_settings_for_profile(profile: str | None = None) -> Settings:
     """Create a new Settings instance for a specific profile.
 
     This bypasses the singleton pattern to allow multiple profiles
     to be used simultaneously (e.g., in MCP server with per-tool profiles).
 
     Args:
-        profile: Database profile to use (default, dev, test)
+        profile: Database profile to use (default, dev, test). If None, checks TASKS_PROFILE env var.
 
     Returns:
         Settings: A new Settings instance configured for the profile
@@ -662,8 +670,16 @@ def create_settings_for_profile(profile: str) -> Settings:
     if "general" in toml_config:
         flat_config.update(toml_config["general"])
 
-    # Override profile
-    flat_config["profile"] = profile
+    # Determine profile with fallback chain:
+    # 1. Explicitly passed profile (highest priority)
+    # 2. TASKS_PROFILE environment variable
+    # 3. Default profile
+    if profile:
+        flat_config["profile"] = profile
+    else:
+        tasks_profile = os.getenv("TASKS_PROFILE")
+        if tasks_profile:
+            flat_config["profile"] = tasks_profile
 
     # Pass nested sections as-is
     for key in ["database", "defaults", "logging", "mcp", "atlassian", "profiles"]:

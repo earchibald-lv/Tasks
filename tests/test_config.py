@@ -1,11 +1,14 @@
 """Tests for configuration management."""
 
 from pathlib import Path
+import os
+import pytest
 
 from taskmanager.config import (
     Settings,
     get_settings,
     reset_settings,
+    create_settings_for_profile,
     McpServerModifier,
     ProfileModifier,
     resolve_config_value,
@@ -307,3 +310,70 @@ class TestSettingsWithProfiles:
         # Ensure basic settings still work
         assert settings.profile == "default"
         assert settings.database is not None
+
+
+class TestTasksProfileEnvironmentVariable:
+    """Tests for TASKS_PROFILE environment variable support."""
+
+    def test_tasks_profile_env_var_in_get_settings(self, monkeypatch):
+        """Test that TASKS_PROFILE environment variable is respected in get_settings."""
+        reset_settings()
+        monkeypatch.setenv("TASKS_PROFILE", "dev")
+        
+        settings = get_settings()
+        assert settings.profile == "dev"
+        
+        reset_settings()
+        monkeypatch.delenv("TASKS_PROFILE", raising=False)
+
+    def test_tasks_profile_env_var_in_create_settings_for_profile(self, monkeypatch):
+        """Test that TASKS_PROFILE environment variable is used when profile not explicitly passed."""
+        monkeypatch.setenv("TASKS_PROFILE", "dev")
+        
+        # Create settings without specifying profile
+        settings = create_settings_for_profile()
+        assert settings.profile == "dev"
+        
+        # Explicit profile should take precedence
+        settings = create_settings_for_profile("test")
+        assert settings.profile == "test"
+        
+        monkeypatch.delenv("TASKS_PROFILE", raising=False)
+
+    def test_tasks_profile_env_var_precedence(self, monkeypatch):
+        """Test precedence: explicit profile > TASKS_PROFILE > default."""
+        monkeypatch.setenv("TASKS_PROFILE", "dev")
+        
+        # TASKS_PROFILE should be used
+        settings = create_settings_for_profile()
+        assert settings.profile == "dev"
+        
+        # Explicit profile should override TASKS_PROFILE
+        settings = create_settings_for_profile("test")
+        assert settings.profile == "test"
+        
+        # Without TASKS_PROFILE env var, should default to "default"
+        monkeypatch.delenv("TASKS_PROFILE", raising=False)
+        settings = create_settings_for_profile()
+        assert settings.profile == "default"
+
+    def test_tasks_profile_env_var_invalid_not_set(self, monkeypatch):
+        """Test default behavior when TASKS_PROFILE is not set."""
+        monkeypatch.delenv("TASKS_PROFILE", raising=False)
+        reset_settings()
+        
+        settings = get_settings()
+        assert settings.profile == "default"
+        
+        reset_settings()
+
+    def test_tasks_profile_env_var_with_custom_profile(self, monkeypatch):
+        """Test that TASKS_PROFILE works with custom profile names."""
+        reset_settings()
+        monkeypatch.setenv("TASKS_PROFILE", "client-a")
+        
+        settings = get_settings()
+        assert settings.profile == "client-a"
+        
+        reset_settings()
+        monkeypatch.delenv("TASKS_PROFILE", raising=False)

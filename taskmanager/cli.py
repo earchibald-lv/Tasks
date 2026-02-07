@@ -2089,7 +2089,7 @@ def main():
 
     parser.add_argument("-V", "--version", action="version", version=f"tasks {get_version()}")
     parser.add_argument("-c", "--config", type=Path, help="Path to configuration file")
-    parser.add_argument("-p", "--profile", help="Configuration profile (default, dev, test)")
+    parser.add_argument("-p", "--profile", help="Configuration profile (default, dev, test). Can also be set via TASKS_PROFILE env var")
     parser.add_argument("-d", "--database", help="Database URL override")
 
     # Add shell completion support if shtab is available

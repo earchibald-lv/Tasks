@@ -23,14 +23,25 @@ mcp = FastMCP("Task Manager", version="0.1.0")
 
 # Dynamic profile resolution function
 def get_default_profile() -> str:
-    """Get default profile from environment variable or use "default".
+    """Get default profile from environment variables or use "default".
 
-    This function reads the environment variable each time it's called,
+    This function reads environment variables each time it's called,
     allowing external MCP clients to change the default profile dynamically.
+    
+    Checks environment variables in this order:
+    1. TASKS_PROFILE (preferred for general usage)
+    2. TASKMANAGER_PROFILE (for backward compatibility)
+    3. Falls back to "default" if neither is set
 
     Returns:
-        str: Profile name ("default", "dev", or "test")
+        str: Profile name ("default", "dev", "test", or custom profile)
     """
+    # Check TASKS_PROFILE first (preferred)
+    profile = os.environ.get("TASKS_PROFILE")
+    if profile:
+        return profile
+    
+    # Fall back to TASKMANAGER_PROFILE for backward compatibility
     return os.environ.get("TASKMANAGER_PROFILE", "default")
 
 
