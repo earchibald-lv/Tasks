@@ -152,12 +152,12 @@ def format_timestamp_entry(text: str) -> str:
         text: The text to prepend timestamp to.
 
     Returns:
-        Text with timestamp prefix in format: [YYYY-MM-DD HH:MM:SS] text
+        Text with timestamp prefix in format: [YYYY-MM-DD HH:MM:SS]\ntext
     """
     if not text:
         return text
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return f"[{timestamp}] {text}"
+    return f"[{timestamp}]\n{text}"
 
 
 # Command implementations
