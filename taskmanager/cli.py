@@ -145,6 +145,21 @@ def load_from_file_if_needed(value: str | None) -> str | None:
         sys.exit(1)
 
 
+def format_timestamp_entry(text: str) -> str:
+    """Prepend a human-readable timestamp to text.
+
+    Args:
+        text: The text to prepend timestamp to.
+
+    Returns:
+        Text with timestamp prefix in format: [YYYY-MM-DD HH:MM:SS] text
+    """
+    if not text:
+        return text
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"[{timestamp}] {text}"
+
+
 # Command implementations
 
 
@@ -153,6 +168,10 @@ def cmd_add(args):
     try:
         service = get_service()
         description = load_from_file_if_needed(args.description)
+
+        # Prepend timestamp to description if provided
+        if description:
+            description = format_timestamp_entry(description)
 
         due_date = None
         if args.due:
@@ -733,6 +752,48 @@ def cmd_capture(args):
         sys.exit(1)
 
 
+def cmd_append(args):
+    """Append text to a task's description.
+
+    Adds text to an existing task's description with a timestamp prefix.
+    If the task has no description, creates one.
+    """
+    try:
+        service = get_service()
+
+        task_id = args.task_id
+        text = load_from_file_if_needed(args.text)
+
+        if not text or not text.strip():
+            print("Error: Cannot append empty text", file=sys.stderr)
+            sys.exit(1)
+
+        # Get the existing task
+        task = service.get_task(task_id)
+
+        # Format the new entry with timestamp
+        new_entry = format_timestamp_entry(text.strip())
+
+        # Append to existing description or create new one
+        if task.description:
+            updated_description = f"{task.description}\n\n{new_entry}"
+        else:
+            updated_description = new_entry
+
+        # Update the task
+        updated_task = service.update_task(task_id=task_id, description=updated_description)
+
+        print(f"✓ Appended to task #{task_id}: {task.title}")
+        print(f"  New entry: {new_entry}")
+
+    except ValueError as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_recall(args):
     """Semantic search across tasks (episodic memory retrieval).
 
@@ -836,12 +897,12 @@ def cmd_maintenance_reindex(args):
         all_tasks = []
         offset = 0
         limit = 100
-        
+
         while True:
             tasks_batch, total = service.list_tasks(limit=limit, offset=offset)
             all_tasks.extend(tasks_batch)
             offset += len(tasks_batch)
-            
+
             # Break if we've retrieved all tasks
             if offset >= total or len(tasks_batch) == 0:
                 break
@@ -2089,7 +2150,11 @@ def main():
 
     parser.add_argument("-V", "--version", action="version", version=f"tasks {get_version()}")
     parser.add_argument("-c", "--config", type=Path, help="Path to configuration file")
-    parser.add_argument("-p", "--profile", help="Configuration profile (default, dev, test). Can also be set via TASKS_PROFILE env var")
+    parser.add_argument(
+        "-p",
+        "--profile",
+        help="Configuration profile (default, dev, test). Can also be set via TASKS_PROFILE env var",
+    )
     parser.add_argument("-d", "--database", help="Database URL override")
 
     # Add shell completion support if shtab is available
@@ -2249,6 +2314,14 @@ def main():
     )
     capture_parser.add_argument("text", help="Task text to capture")
     capture_parser.set_defaults(func=cmd_capture)
+
+    # Append command (add timestamped text to an existing task)
+    append_parser = subparsers.add_parser(
+        "append", help="Append timestamped text to a task's description"
+    )
+    append_parser.add_argument("task_id", type=int, help="Task ID to append to")
+    append_parser.add_argument("text", help="Text to append (supports @file syntax)")
+    append_parser.set_defaults(func=cmd_append)
 
     # Recall command (semantic search / episodic memory)
     recall_parser = subparsers.add_parser(
