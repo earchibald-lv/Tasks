@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from sqlmodel import Session, SQLModel, create_engine
 
-from taskmanager.models import Priority, Task, TaskStatus
+from taskmanager.models import Priority, TaskStatus
 from taskmanager.repository_impl import SQLTaskRepository
 from taskmanager.service import TaskService
 
@@ -77,7 +77,7 @@ class TestPromptConstruction:
             title="Focus Task",
             description="A task to focus on",
             priority=Priority.HIGH,
-            status=TaskStatus.IN_PROGRESS
+            status=TaskStatus.IN_PROGRESS,
         )
 
         # Generate prompt with task focus

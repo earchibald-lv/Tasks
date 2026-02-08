@@ -5,16 +5,11 @@ layer (CLI, MCP) and the repository layer, implementing core business
 logic and validation rules.
 """
 
-import sys
+import tomllib
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 try:
     import tomli_w
@@ -30,7 +25,7 @@ from taskmanager.attachments import (
     serialize_attachments,
 )
 from taskmanager.config import Settings, get_settings
-from taskmanager.models import Priority, Task, TaskStatus, Attachment
+from taskmanager.models import Attachment, Priority, Task, TaskStatus
 from taskmanager.repository import TaskRepository
 from taskmanager.workspace import WorkspaceManager, WorkspaceMetadata
 
@@ -1107,7 +1102,6 @@ class TaskService:
         # Gather task statistics
         all_tasks, _ = self.list_tasks(limit=100)  # Get up to 100 tasks for overview
         in_progress = [t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS]
-        pending = [t for t in all_tasks if t.status == TaskStatus.PENDING]
         overdue = [
             t
             for t in all_tasks
