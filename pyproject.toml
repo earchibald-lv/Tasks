@@ -34,6 +34,8 @@ dependencies = [
     # Semantic search / episodic memory (v0.11.0)
     "fastembed>=0.4.0",
     "sqlite-vec>=0.1.1",
+    # Clipboard support for tasks prompt
+    "pyperclip>=1.8.0",
 ]
 
 [project.optional-dependencies]

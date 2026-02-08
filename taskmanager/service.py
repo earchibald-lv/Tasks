@@ -5,16 +5,11 @@ layer (CLI, MCP) and the repository layer, implementing core business
 logic and validation rules.
 """
 
-import sys
+import tomllib
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 try:
     import tomli_w
@@ -30,7 +25,7 @@ from taskmanager.attachments import (
     serialize_attachments,
 )
 from taskmanager.config import Settings, get_settings
-from taskmanager.models import Priority, Task, TaskStatus, Attachment
+from taskmanager.models import Attachment, Priority, Task, TaskStatus
 from taskmanager.repository import TaskRepository
 from taskmanager.workspace import WorkspaceManager, WorkspaceMetadata
 
@@ -1078,3 +1073,250 @@ class TaskService:
             except Exception as e:
                 # Log the error but don't fail the deletion
                 print(f"Warning: Could not remove profile from settings.toml: {e}")
+
+    def construct_full_prompt(
+        self, user_query: str | None = None, task_id: int | None = None
+    ) -> str:
+        """Construct the full system prompt and context that would be sent to the LLM.
+
+        This function creates the exact prompt that would be used during a tasks chat session,
+        including system instructions, current context, and any user query.
+
+        Args:
+            user_query: Optional user query to include in the prompt
+            task_id: Optional task ID to focus the context on
+
+        Returns:
+            str: The complete formatted prompt string
+        """
+        from datetime import date
+        from zoneinfo import ZoneInfo
+
+        settings = self.config
+
+        # Get current time in user's local timezone
+        tz = ZoneInfo(settings.timezone)
+        now = datetime.now(tz)
+        current_time_str = now.strftime("%A, %B %d, %Y at %I:%M %p %Z")
+
+        # Gather task statistics
+        all_tasks, _ = self.list_tasks(limit=100)  # Get up to 100 tasks for overview
+        in_progress = [t for t in all_tasks if t.status == TaskStatus.IN_PROGRESS]
+        overdue = [
+            t
+            for t in all_tasks
+            if t.due_date
+            and t.due_date < date.today()
+            and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]
+        ]
+        high_priority = [
+            t
+            for t in all_tasks
+            if t.priority == Priority.HIGH
+            and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]
+        ]
+        urgent_priority = [
+            t
+            for t in all_tasks
+            if t.priority == Priority.URGENT
+            and t.status not in [TaskStatus.COMPLETED, TaskStatus.CANCELLED]
+        ]
+
+        # Build structured context
+        context_parts = []
+        context_parts.append("# Initial Task Context\n")
+        context_parts.append(f"**Current Time:** {current_time_str}")
+        context_parts.append(f"**Today's Date:** {now.strftime('%Y-%m-%d')}")
+        context_parts.append(f"**Day of Week:** {now.strftime('%A')}")
+        context_parts.append(f"**Timezone:** {settings.timezone}")
+        context_parts.append(f"**Weekend:** {'Yes' if now.weekday() >= 5 else 'No'}\n")
+        context_parts.append(f"**Profile:** {settings.profile}")
+        context_parts.append(f"**Total tasks:** {len(all_tasks)}\n")
+
+        if urgent_priority:
+            context_parts.append(f"## 🚨 Urgent Tasks ({len(urgent_priority)})")
+            for task in urgent_priority[:5]:  # Show up to 5
+                context_parts.append(f"- **#{task.id}** {task.title} [{task.status.value}]")
+            if len(urgent_priority) > 5:
+                context_parts.append(f"  _(and {len(urgent_priority) - 5} more)_")
+            context_parts.append("")
+
+        if overdue:
+            context_parts.append(f"## ⏰ Overdue Tasks ({len(overdue)})")
+            for task in overdue[:5]:
+                context_parts.append(
+                    f"- **#{task.id}** {task.title} (due {task.due_date}) [{task.status.value}]"
+                )
+            if len(overdue) > 5:
+                context_parts.append(f"  _(and {len(overdue) - 5} more)_")
+            context_parts.append("")
+
+        if in_progress:
+            context_parts.append(f"## ▶️ In Progress ({len(in_progress)})")
+            for task in in_progress[:5]:
+                jira_info = f" - JIRA: {task.jira_issues}" if task.jira_issues else ""
+                context_parts.append(
+                    f"- **#{task.id}** {task.title} [{task.priority.value}]{jira_info}"
+                )
+            if len(in_progress) > 5:
+                context_parts.append(f"  _(and {len(in_progress) - 5} more)_")
+            context_parts.append("")
+
+        if high_priority and not urgent_priority:
+            context_parts.append(f"## ⚠️ High Priority Tasks ({len(high_priority)})")
+            for task in high_priority[:3]:
+                context_parts.append(f"- **#{task.id}** {task.title} [{task.status.value}]")
+            if len(high_priority) > 3:
+                context_parts.append(f"  _(and {len(high_priority) - 3} more)_")
+            context_parts.append("")
+
+        context_parts.append(
+            "\n**I'm ready to help you with your tasks. What would you like to work on?**"
+        )
+
+        context_prompt = "\n".join(context_parts)
+
+        # Build comprehensive system prompt
+        system_prompt = """# Mission: Smart Assistant for Task & JIRA Management
+
+You are a specialized AI assistant with expertise in task management and JIRA/Confluence operations. Your primary mission is to help users efficiently manage their work using two MCP servers:
+
+## Available MCP Tools
+
+### 1. tasks-mcp Server
+The tasks-mcp server provides comprehensive task management capabilities:
+
+**Core Operations:**
+- `mcp_tasks-mcp_list_tasks` - List tasks with filtering (status, priority, tag, overdue)
+- `mcp_tasks-mcp_get_task` - Get detailed information about a specific task
+- `mcp_tasks-mcp_create_task` - Create new tasks (use interactive version for guided creation)
+- `mcp_tasks-mcp_update_task` - Update task fields (title, description, priority, status, due date, tags, JIRA issues)
+- `mcp_tasks-mcp_complete_task` - Mark a task as completed
+- `mcp_tasks-mcp_delete_task` - Delete a task (use interactive version for confirmation)
+
+**Workspace Operations:**
+- `mcp_tasks-mcp_create_workspace` - Create persistent workspace directory structure for a task
+- `mcp_tasks-mcp_get_workspace_info` - Get workspace metadata and path information
+- `mcp_tasks-mcp_get_workspace_path` - Get absolute filesystem path to a task's workspace
+- `mcp_tasks-mcp_list_workspace_files` - Browse workspace directory contents
+- `mcp_tasks-mcp_search_workspace` - Search for content within a task's workspace files
+- `mcp_tasks-mcp_delete_workspace` - Delete a task's workspace (destructive)
+
+**Search & Discovery:**
+- `mcp_tasks-mcp_search_all_tasks` - Comprehensive search across task metadata and workspace content
+
+**Time Awareness:**
+- `mcp_tasks-mcp_get_current_time` - Get current timestamp with timezone info (ISO 8601, unix timestamp, day of week, weekend detection)
+- `mcp_tasks-mcp_format_datetime` - Format and convert datetime strings with timezone support
+- `mcp_tasks-mcp_calculate_time_delta` - Calculate time differences for deadline tracking and scheduling
+
+**Best Practices for tasks-mcp:**
+- Use interactive versions (`create_task_interactive`, `update_task_interactive`, `delete_task_interactive`) when you need guidance or confirmation
+- Always ensure workspace exists before working with task files
+- Tasks can have JIRA issues linked via comma-separated keys (e.g., "SRE-1234,DEVOPS-5678")
+- Workspaces provide organized structure: notes/, code/, logs/, tmp/
+- Use time-awareness tools for accurate schedule operations, deadline calculations, and time-sensitive workflows
+- All timezone operations support IANA timezone names (UTC, America/New_York, Europe/London, etc.)
+
+### 2. atlassian-mcp Server
+The atlassian-mcp server provides JIRA and Confluence integration (when credentials are configured):
+
+**JIRA Operations:**
+- Search and retrieve JIRA issues
+- View issue details, comments, and attachments
+- Create and update issues
+- Manage issue transitions (workflow states)
+
+**Confluence Operations:**
+- Search and retrieve Confluence pages
+- View page content and metadata
+- Create and update pages
+
+**Best Practices for atlassian-mcp:**
+- JIRA issue keys follow pattern: PROJECT-NUMBER (e.g., SRE-1234)
+- Link JIRA issues to tasks using the jira_issues field
+- Search before creating to avoid duplicates
+
+## Initial Context Gathering
+
+When starting a new session, please:
+
+1. **Be aware of current time:**
+   - The current date and time are provided in the initial context
+   - Use this for deadline discussions and deadline-aware operations
+   - Check for overdue tasks by comparing due dates to today's date
+
+2. **Understand the current profile context:**
+   - List recent tasks to understand what's in flight
+   - Identify high-priority or urgent items
+   - Check if there are related JIRA issues
+
+3. **Assess the work environment:**
+   - Note which tasks are in progress vs pending
+   - Look for high-priority items
+   - Check if there are related JIRA issues
+
+4. **Ask clarifying questions:**
+   - What would you like to focus on today?
+   - Should we review existing tasks or start something new?
+   - Are there specific JIRA issues you're working on?
+
+## Operational Guidelines
+
+- **Safety First:** Always confirm before destructive operations (delete, major updates)
+- **Context Aware:** Consider task status, priority, and deadlines when making suggestions
+- **Time Aware:** Use current time tools to provide accurate schedule information and deadline calculations. Always check current time when discussing due dates or time-sensitive tasks.
+- **Proactive:** Suggest related JIRA issues or tasks that might be relevant
+- **Organized:** Use workspace features to keep notes, code, and logs structured
+- **Efficient:** Batch similar operations when appropriate
+- **Transparent:** Explain what you're doing and why, especially for complex operations
+
+## Communication Standards
+
+- **Always Use Numeric Task IDs:** When referring to tasks in your responses, ALWAYS include the numeric task ID (e.g., "task #27" or "#27") even when using natural language descriptions. Never refer to tasks by title alone.
+  - ✅ GOOD: "I've updated task #27 (Context initialization defect)"
+  - ✅ GOOD: "Let's work on #27"
+  - ❌ BAD: "I've updated the context initialization defect task"
+  - ❌ BAD: "Let's work on that task"
+- **JIRA References:** Similarly, always include JIRA issue keys when discussing JIRA items (e.g., "SRE-1234")
+- **Clarity:** This ensures precise communication and avoids ambiguity when discussing multiple tasks
+
+"""
+
+        # Add current task context if provided
+        if task_id:
+            task = self.get_task(task_id)
+            workspace_path = self.get_workspace_path(task_id)
+            system_prompt += "\n## Current Task Focus\n\n"
+            system_prompt += "You are currently working in the context of:\n\n"
+            system_prompt += f"- **Task ID:** #{task.id}\n"
+            system_prompt += f"- **Title:** {task.title}\n"
+            system_prompt += f"- **Status:** {task.status.value}\n"
+            system_prompt += f"- **Priority:** {task.priority.value}\n"
+            if task.description:
+                system_prompt += f"- **Description:** {task.description}\n"
+            if task.due_date:
+                system_prompt += f"- **Due Date:** {task.due_date}\n"
+            if task.jira_issues:
+                system_prompt += f"- **Related JIRA Issues:** {task.jira_issues}\n"
+            if task.tags:
+                system_prompt += f"- **Tags:** {', '.join(task.tags)}\n"
+            if workspace_path:
+                system_prompt += f"- **Workspace:** {workspace_path}\n"
+            system_prompt += "\nPlease help the user work on this task efficiently.\n"
+
+        # Add profile-specific prompt additions if configured
+        profile_modifier = settings.get_profile_modifier()
+        if profile_modifier and profile_modifier.prompt_additions:
+            system_prompt += (
+                f"\n## Profile-Specific Instructions\n\n{profile_modifier.prompt_additions}\n"
+            )
+
+        # Combine system prompt and context
+        full_prompt = f"{system_prompt}\n\n{context_prompt}"
+
+        # Add user query if provided
+        if user_query:
+            full_prompt += f"\n\n# User Query\n\n{user_query}"
+
+        return full_prompt

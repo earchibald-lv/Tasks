@@ -753,14 +753,14 @@ def cmd_capture(args):
 
     Uses semantic search to detect similar existing tasks before creating new ones.
     If a similar task is found, prompts to add as comment instead.
-    
+
     Supports text input via command-line argument or stdin:
     - tasks capture "My task text"
     - echo "My task text" | tasks capture
     """
     try:
         service = get_service()
-        
+
         # Get text from argument or stdin
         if args.text:
             text = args.text.strip()
@@ -861,7 +861,7 @@ def cmd_append(args):
             updated_description = new_entry
 
         # Update the task
-        updated_task = service.update_task(task_id=task_id, description=updated_description)
+        service.update_task(task_id=task_id, description=updated_description)
 
         print(f"✓ Appended to task #{task_id}: {task.title}")
         print(f"  New entry: {new_entry}")
@@ -1941,6 +1941,63 @@ When starting a new session, please:
         sys.exit(1)
 
 
+def cmd_prompt(args):
+    """Generate and display the full context/prompt that would be sent to the LLM.
+
+    This command generates the exact system prompt and context data that would be
+    sent to the LLM during a tasks chat session, allowing for debugging and manual
+    copying of prompts for external use.
+    """
+    try:
+        service = get_service()
+
+        # Construct the full prompt using the service layer
+        user_query = args.query if hasattr(args, "query") and args.query else None
+        task_id = args.task_id if hasattr(args, "task_id") and args.task_id else None
+
+        full_prompt = service.construct_full_prompt(user_query=user_query, task_id=task_id)
+
+        # Handle output based on --copy flag
+        copy_to_clipboard = args.copy if hasattr(args, "copy") else False
+
+        if copy_to_clipboard:
+            # Try to copy to clipboard
+            try:
+                import pyperclip
+
+                pyperclip.copy(full_prompt)
+                print("✅ Full prompt copied to clipboard.", file=sys.stderr)
+            except (ImportError, Exception) as e:
+                # Check if it's an ImportError (pyperclip not available)
+                # or a runtime error (no clipboard mechanism)
+                if isinstance(e, ImportError):
+                    error_msg = "pyperclip not installed"
+                else:
+                    error_msg = str(e)
+
+                # Fallback for MacOS using pbcopy
+                try:
+                    process = subprocess.Popen(
+                        "pbcopy", env={"LANG": "en_US.UTF-8"}, stdin=subprocess.PIPE
+                    )
+                    process.communicate(full_prompt.encode("utf-8"))
+                    print("✅ Full prompt copied to clipboard (via pbcopy).", file=sys.stderr)
+                except Exception:
+                    print(f"❌ Failed to copy to clipboard: {error_msg}", file=sys.stderr)
+                    print("\nFalling back to stdout:\n")
+                    print(full_prompt)
+        else:
+            # Default: print to stdout
+            print(full_prompt)
+
+    except ValueError as e:
+        print(f"Error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_backup_list(args):
     """List all available point-in-time backups for a profile."""
     try:
@@ -2140,6 +2197,7 @@ def main():
         "attach",
         "workspace",
         "chat",
+        "prompt",
     ]
 
     # Expand abbreviations in sys.argv before parsing
@@ -2326,9 +2384,7 @@ def main():
         "capture", help="Quick-capture a task with semantic duplicate detection"
     )
     capture_parser.add_argument(
-        "text",
-        nargs="?",
-        help="Task text to capture (reads from stdin if not provided)"
+        "text", nargs="?", help="Task text to capture (reads from stdin if not provided)"
     )
     capture_parser.set_defaults(func=cmd_capture)
 
@@ -2509,6 +2565,27 @@ def main():
         "--no-context", action="store_true", help="Skip automatic context loading"
     )
     chat_parser.set_defaults(func=cmd_chat)
+
+    # Prompt command
+    prompt_parser = subparsers.add_parser(
+        "prompt", help="Generate and display the full prompt that would be sent to the LLM"
+    )
+    prompt_parser.add_argument(
+        "query", nargs="?", type=str, help="Optional user query to include in the context"
+    )
+    prompt_parser.add_argument(
+        "--task-id",
+        "-t",
+        type=int,
+        help="Optional task ID to focus the context on",
+    )
+    prompt_parser.add_argument(
+        "--copy",
+        "-c",
+        action="store_true",
+        help="Copy the generated prompt to clipboard instead of printing",
+    )
+    prompt_parser.set_defaults(func=cmd_prompt)
 
     # Backup sub-commands
     backup_parser = subparsers.add_parser("backup", help="Manage point-in-time database backups")
