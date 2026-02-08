@@ -2574,7 +2574,10 @@ def main():
         "query", nargs="?", type=str, help="Optional user query to include in the context"
     )
     prompt_parser.add_argument(
-        "task_id", nargs="?", type=int, help="Optional task ID to focus the context on"
+        "--task-id",
+        "-t",
+        type=int,
+        help="Optional task ID to focus the context on",
     )
     prompt_parser.add_argument(
         "--copy",
